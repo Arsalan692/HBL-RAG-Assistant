@@ -117,7 +117,7 @@
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 0;
     border-bottom: 1px solid var(--line);
-    margin-bottom: 56px;
+    margin-bottom: 26px;
   }
   .control div {
     padding: 14px 18px 15px 0;
@@ -137,6 +137,52 @@
     font-size: .95rem;
     font-weight: 500;
     color: var(--ink);
+  }
+
+  /* ---------- status panel ---------- */
+
+  .statusbar {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--ok);
+    border-radius: 5px;
+    padding: 20px 24px 22px;
+    margin: 0 0 56px;
+    box-shadow: var(--shadow);
+  }
+  .statusbar h2 {
+    font-family: "Public Sans", sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -.005em;
+    border-top: none;
+    padding-top: 0;
+    margin: 0 0 10px;
+  }
+  .statusbar p { margin-bottom: 10px; }
+  .statusbar p:last-of-type { margin-bottom: 0; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+  .chip {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 3px 7px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .chip.done {
+    color: var(--ok);
+    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+    background: color-mix(in srgb, var(--ok) 12%, transparent);
+  }
+  .chip.next {
+    color: var(--accent-ink);
+    border-color: var(--accent);
+    background: var(--accent-bg);
   }
 
   /* ---------- sections ---------- */
@@ -245,6 +291,12 @@
     border-color: var(--accent);
     background: var(--accent-bg);
   }
+  .phase-tag.built {
+    color: var(--ok);
+    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+    background: color-mix(in srgb, var(--ok) 12%, transparent);
+  }
+  .phase.is-built .phase-code { color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
   .phase-body h3 { margin-top: 0; }
   .phase-body > p:last-child { margin-bottom: 0; }
 
@@ -396,7 +448,7 @@
 <div class="wrap">
 
 <header class="masthead">
-  <p class="eyebrow">Build Plan &nbsp;/&nbsp; Rev. A &nbsp;/&nbsp; Pre-implementation</p>
+  <p class="eyebrow">Build Plan &nbsp;/&nbsp; Rev. B &nbsp;/&nbsp; Interface built · backend next</p>
   <h1>Retrieval assistant for<br>HBL policy documents</h1>
   <p class="standfirst">A grounded question-answering system over ~22 internal policy PDFs — mixed digital and scanned, table-heavy, with documents added and removed over time. Ten phases, each with a gate you sign off before the next begins.</p>
 </header>
@@ -405,13 +457,25 @@
   <div><dt>Corpus</dt><dd>~22 PDFs · ~1,300 pp.</dd></div>
   <div><dt>Posture</dt><dd>Fully offline</dd></div>
   <div><dt>Target</dt><dd>POC, production-shaped</dd></div>
-  <div><dt>Dev host</dt><dd>CPU laptop</dd></div>
+  <div><dt>Dev host</dt><dd>CPU laptop · Python 3.13</dd></div>
   <div><dt>Run host</dt><dd>RTX 4060 Ti · 16 GB</dd></div>
 </dl>
 
+<div class="statusbar">
+  <h2>Where this stands</h2>
+  <p>The interface was built first, out of sequence, against mock data — so the shape of the answer was settled before anything had to produce one. That turned out to be useful: the frontend now <em>defines</em> the contract the backend has to satisfy, rather than the other way round.</p>
+  <p><strong>Everything server-side is still unwritten.</strong> There is no <code>backend/</code> directory yet. The next step is Phase 00.</p>
+  <div class="chips">
+    <span class="chip done">07 Interface — chat surface built</span>
+    <span class="chip next">00 Foundation — next</span>
+    <span class="chip">01–06 Backend — not started</span>
+    <span class="chip">08–09 Eval &amp; hardening — not started</span>
+  </div>
+</div>
+
 <section>
   <h2><span class="num">01</span>Constraints this plan is built around</h2>
-  <p class="lede">Five facts shape every decision below. If any of them is wrong, tell me now rather than at Phase 05.</p>
+  <p class="lede">Five facts shape every decision below. All five are now confirmed; they are recorded here so later phases do not quietly re-open them.</p>
 
   <h3>Split development and execution</h3>
   <p>You build here on a CPU-only laptop and move the code to the office GPU box whenever something needs to actually run. That is a real architectural constraint, not a logistics detail: <strong>no absolute paths, no machine-specific assumptions, every model name in <code>.env</code>, and a headless CLI for every heavy operation</strong> so ingestion can run on the GPU box without a browser. Transfer is a <code>git pull</code> plus <code>pip install -r requirements.txt</code>, never a manual reconciliation.</p>
@@ -517,13 +581,13 @@
         <tr><td>Reranker</td><td><code>bge-reranker-v2-m3</code></td><td>Cross-encoder over ~30 candidates. The single largest quality gain after parsing.</td></tr>
         <tr><td>Generation</td><td>Qwen3-14B, 4-bit, served by Ollama</td><td>Best quality that fits alongside the other two models in 16 GB. Sized in the memory budget below.</td></tr>
         <tr><td>API</td><td>FastAPI + SSE streaming</td><td>Async, typed, self-documenting, and the natural shape if HBL ever wants to consume it from elsewhere.</td></tr>
-        <tr><td>Interface</td><td>Vite + React 18 + Tailwind v4 + shadcn/ui</td><td>The stack the Figma design system already ships in. A plain single-page app — no server rendering needed, it just talks to FastAPI over HTTP.</td></tr>
+        <tr><td>Interface</td><td>Vite + React 18 + Tailwind v4, Radix primitives</td><td>The stack the Figma design system ships in, minus its component library — see below. A plain single-page app; no server rendering, it just talks to FastAPI over HTTP.</td></tr>
       </tbody>
     </table>
   </div>
 
-  <h3>The design system already exists</h3>
-  <p>A Figma-generated bundle sits in <code>Design System for HBL RAG Chatbot/</code>. It is not the application — it is a single reference page that displays every component twice, once light and once dark, like a printed style guide. Three parts of it matter, and they matter differently:</p>
+  <h3>What the Figma bundle actually gave us</h3>
+  <p>A Figma-generated bundle sits in <code>Design System for HBL RAG Chatbot/</code>. It is not the application — it is a single reference page that displays every component twice, once light and once dark, like a printed style guide. Written before adoption, this table predicted three useful parts. In the event only one was used, which is worth recording honestly:</p>
 
   <div class="scroller">
     <table>
@@ -538,25 +602,28 @@
         </tr>
         <tr>
           <td><code>src/app/components/ui/</code></td>
-          <td><strong>Production ready</strong></td>
-          <td>48 standard shadcn/ui components already reading from those variables. Buttons, dialogs, tables, tooltips, sidebar, sonner toasts. Copies across untouched.</td>
+          <td><strong>Not used</strong></td>
+          <td>48 shadcn/ui components. The plan expected to copy these across; in practice nothing was imported. Every screen turned out to need custom styling against the showcase's exact sizes and radii, so the components are built on the Radix primitives directly and only the primitives that were needed got installed. Keeps the dependency tree small.</td>
         </tr>
         <tr>
           <td><code>src/app/App.tsx</code></td>
           <td><strong>Specification, not code</strong></td>
-          <td>Every screen element drawn with hard-coded inline styles rather than Tailwind classes. It shows exactly how things should look; it cannot be imported. We rebuild these as real components against the tokens.</td>
+          <td>Every screen element drawn with hard-coded inline styles rather than Tailwind classes. It shows exactly how things should look; it cannot be imported. These were rebuilt as real components against the tokens.</td>
         </tr>
       </tbody>
     </table>
   </div>
 
-  <p>That last row is the one to be clear-eyed about. The showcase defines the look of the composer, the message bubbles, the inline citation chip, the source card, the citation pills, the sidebar, the skeleton loader and the empty state — precise sizes, radii, weights and every interaction state. That is genuinely valuable and saves the hard part, which is deciding. But each one gets written properly during Phase 07 rather than lifted.</p>
+  <p>That last row is the one that mattered. The showcase defines the look of the composer, the message bubbles, the inline citation chip, the source card, the citation pills, the sidebar, the skeleton loader and the empty state — precise sizes, radii, weights and every interaction state. That saved the genuinely hard part, which is deciding.</p>
 
-  <p>Two cleanups when we adopt it: drop Material UI, which Figma bundled alongside shadcn and which we will not use, and drop <code>next-themes</code> for a plain theme provider, since there is no Next.js here.</p>
+  <p>Two cleanups on adoption, both done: Material UI dropped, which Figma had bundled alongside shadcn, and <code>next-themes</code> replaced with a plain provider, since there is no Next.js here.</p>
 
-  <h4>What the design implies that the plan didn't</h4>
-  <p>The sidebar in the showcase reads <em>New Chat · History · Saved · Documents · Settings</em>, and the account menu ends in <em>Sign Out</em>. Those are features, not decoration — saved chat history, bookmarked answers, and sign-in all have to exist behind them. They are captured as scope in Phase 07 below.</p>
-  <p>The reverse is also true: the showcase has no screen for uploading a document, no ingestion progress, and no delete confirmation, even though those are core requirements. Phase 07 designs them in the same visual language.</p>
+  <h4>Two teals, on purpose</h4>
+  <p>White text on the brand teal <code>#009F8C</code> measures 3.31:1, under the 4.5:1 that WCAG AA asks for body text. Rather than distort the brand colour, the theme carries two tokens: <code>--hbl-green</code> is the true brand teal and is used only where nothing sits on top of it — borders, focus rings, progress bars, the streaming caret, the mark itself — while <code>--hbl-solid</code> is a deeper step used for anything carrying text or an icon. In dark mode the relationship inverts: the fill stays bright and the text on it goes near-black. Measured in the browser: 4.67:1 light, 10.47:1 dark.</p>
+
+  <h4>What the design implied that the plan didn't</h4>
+  <p>The sidebar reads <em>New Chat · History · Saved · Documents · Settings</em>, and the account menu ends in <em>Sign Out</em>. Those are features, not decoration. Chat history and saved answers are still to build; <strong>sign-in has been explicitly deferred</strong> until the core works.</p>
+  <p>The reverse was also true: the showcase had no screen for uploading a document, no ingestion progress and no delete confirmation, even though those are core requirements. They remain to be designed, in Phase 07's second pass.</p>
 
   <h3>Fitting three models into 16 GB</h3>
   <p>Answering one question uses three different models at once. All three have to be in GPU memory together, so they need a budget:</p>
@@ -603,21 +670,38 @@
 
   <p><strong>Decided: no framework.</strong> We call the same libraries LangChain would have called — PyMuPDF, the Qdrant client, sentence-transformers, SQLite FTS5, Ollama. Fewer moving parts, and full visibility into the retrieval scores during the phase where that visibility is worth the most.</p>
 
+  <h3>The contract the backend has to satisfy</h3>
+  <p>Because the interface was built first, the response shape is already fixed. Two files in <code>frontend/src/</code> define it, and matching them means no component needs changing when the mock data is swapped out:</p>
+  <ul>
+    <li><code>types.ts</code> — <code>Source</code>, <code>Message</code>, <code>ChatSummary</code>. These mirror the API responses field for field.</li>
+    <li><code>data/mock.ts</code> — the canned content to replace. Everything the UI currently renders comes from here.</li>
+  </ul>
+  <p>Three details are easy to miss and expensive to get wrong:</p>
+  <ul>
+    <li><strong>Answers are markdown, and citations are literal <code>[1]</code>, <code>[2]</code> tokens inside the prose.</strong> The renderer swaps those for clickable pills at display time. The generation prompt has to emit exactly that form, or citations render as plain bracketed numbers.</li>
+    <li><strong>Sources must arrive before the answer text.</strong> The stream sends retrieval results first so the pills can resolve while the prose is still being written. The retrieval stepper also wants a document count and a source count.</li>
+    <li>GFM tables are rendered and styled — the model may emit them freely, which matters for a corpus this table-heavy.</li>
+  </ul>
+  <p>The simulated stream lives in <code>frontend/src/App.tsx</code>. Replacing it with a real SSE reader is the only frontend change Phase 06 requires; the component tree does not move.</p>
+
   <div class="callout warn">
-    <p class="callout-label">Environment note</p>
-    <p>Your laptop has <strong>Python 3.13.5</strong> and nothing else. Most of this stack runs fine on 3.13 — but a few OCR engines, the PaddleOCR family in particular, don't publish 3.13 builds yet. Since OCR is the phase we can least afford to be blocked on, Phase 00 rebuilds on <strong>Python 3.12</strong>, which every library in the plan supports today. Five minutes now, versus discovering a missing engine halfway through the bench-off.</p>
+    <p class="callout-label">Environment note — superseded</p>
+    <p>An earlier revision of this plan called for rebuilding on <strong>Python 3.12</strong>, on the grounds that a few OCR engines — the PaddleOCR family in particular — don't publish 3.13 wheels. <strong>That was overruled: the project stays on Python 3.13.5</strong>, the version already installed.</p>
+    <p>The cost is accepted and narrow. PaddleOCR simply drops out of the Phase 01 bench-off, leaving Docling, MinerU, Surya and a local vision model — four candidates, which is plenty. If every one of them disappoints on your scans, installing 3.12 alongside is still a five-minute fallback rather than a rewrite.</p>
   </div>
 </section>
 
 <section>
   <h2><span class="num">04</span>Phases</h2>
   <p class="lede">Sequential, because each phase consumes the previous one's output. Phases marked <em>Gate</em> stop and wait for you — those are the points where a bad result is cheap to fix and expensive to discover later.</p>
+  <p class="lede">One exception has already happened: <strong>Phase 07 was pulled forward</strong> and the interface built against mock data before any of the backend existed. That was worth doing — it settled the shape of an answer, and the citation format in particular, while changing it was still free. The rest of the sequence stands.</p>
 
   <div class="phase">
     <div class="phase-rail"><span class="phase-code">00</span><span class="phase-tag">Foundation</span></div>
     <div class="phase-body">
       <h3>Skeleton, config and provider contracts</h3>
-      <p>Python 3.12 environment; repository layout; <code>pydantic-settings</code> configuration driven entirely by <code>.env</code>; structured logging; and the four provider protocols — <code>LLM</code>, <code>Embedder</code>, <code>Reranker</code>, <code>OCR</code> — that every later phase codes against. A <code>cli</code> entry point that all heavy operations hang off.</p>
+      <p>A <code>backend/</code> package on the existing Python 3.13 environment; <code>pydantic-settings</code> configuration driven entirely by <code>.env</code>; structured logging; and the four provider protocols — <code>LLM</code>, <code>Embedder</code>, <code>Reranker</code>, <code>OCR</code> — that every later phase codes against. A <code>cli</code> entry point that all heavy operations hang off, so ingestion can run headless on the GPU box.</p>
+      <p>The interfaces earn their place even without a cloud fallback: the OCR engine is chosen by bench-off in Phase 01, and the generation model may be re-picked if the VRAM budget bites. Both need to be a config change.</p>
       <div class="done"><b>Done when</b><code>python -m app.cli health</code> prints the resolved config and the active provider for each of the four interfaces.</div>
     </div>
   </div>
@@ -678,28 +762,30 @@
     </div>
   </div>
 
-  <div class="phase">
-    <div class="phase-rail"><span class="phase-code">07</span><span class="phase-tag">Interface</span></div>
+  <div class="phase is-built">
+    <div class="phase-rail"><span class="phase-code">07</span><span class="phase-tag built">Part built</span></div>
     <div class="phase-body">
       <h3>The web application</h3>
-      <p>Built on the Figma design system: tokens and shadcn components copied over, showcase components rebuilt properly. Inter throughout, 15px base, light and dark.</p>
+      <p>Taken out of order and built first, against mock data. Inter throughout, 15px base, light and dark, one easing curve at 180–260ms.</p>
 
-      <h4>Designed already — rebuild to spec</h4>
+      <h4>Built and working</h4>
       <ul>
-        <li><strong>Chat</strong> — composer, user and assistant bubbles, the inline citation chip inside the answer text, source cards, citation pills, skeleton loader while the answer streams, empty state.</li>
-        <li><strong>Sidebar</strong> — navigation items with active, hover and disabled states, and a count badge on Documents.</li>
-        <li><strong>Overlays</strong> — tooltip, dropdown menu, modal, and the three toast variants.</li>
+        <li><strong>Chat</strong> — composer with auto-grow and a stop control, user bubbles, bubble-less assistant answers, inline citation pills, source cards with relevance, answer actions, empty state with suggestions.</li>
+        <li><strong>Streaming</strong> — retrieval stepper, progressive text with a blinking caret, shimmer placeholders for sources, all driven by a simulated stream awaiting a real SSE feed.</li>
+        <li><strong>Source panel</strong> — opens on a citation, pushes the chat column aside rather than covering it, shows the cited passage highlighted with its metadata. Currently renders chunk <em>text</em>; the real page image lands with ingestion.</li>
+        <li><strong>Sidebar</strong> — pinned and grouped history, per-row menus, knowledge-base selector, and a 68px icon rail when collapsed.</li>
+        <li><strong>Settings</strong> — theme (light/dark/system), text size, reduce motion. All three are real and persisted.</li>
+        <li><strong>Responsive</strong> — the sidebar becomes a slide-over drawer below 768px; the composer folds its secondary controls into the attach menu.</li>
+        <li><strong>Handoff reference</strong> at <code>/#/states</code> — every interaction state side by side, plus the motion timings. It imports the same class definitions the product uses, so it cannot drift.</li>
       </ul>
 
-      <h4>Not designed yet — we design them in the same language</h4>
+      <h4>Still to build — needs the backend to exist first</h4>
       <ul>
-        <li><strong>Document library</strong> — the list, drag-and-drop upload, per-document ingestion progress through its five states, and delete behind a confirmation modal. The modal pattern already exists in the showcase; it becomes the delete confirmation.</li>
-        <li><strong>Source viewer</strong> — clicking a citation opens a panel showing the real page image with the cited passage highlighted. This is what turns a plausible answer into a verifiable one, and it is the single most valuable screen in the product.</li>
-        <li><strong>Sign-in</strong> — implied by the account menu.</li>
+        <li><strong>Document library</strong> — the list, drag-and-drop upload, per-document ingestion progress through its five states, and delete behind a confirmation modal.</li>
+        <li><strong>Real page images</strong> in the source panel, replacing the text rendering. This is what turns a plausible answer into a verifiable one, and it is the single most valuable screen in the product.</li>
+        <li><strong>Chat history and saved answers</strong> — the sidebar promises both; each needs a table alongside the document registry.</li>
+        <li><strong>Sign-in</strong> — deferred by decision until the core works.</li>
       </ul>
-
-      <h4>Scope the sidebar commits us to</h4>
-      <p>Chat history and saved answers both need storing per user, which adds tables to the same SQLite database the document registry lives in. Small work, but real work, and it was not in the original plan.</p>
 
       <div class="done"><b>Done when</b>Nothing a user needs to do requires a terminal.</div>
     </div>
@@ -796,11 +882,7 @@
 
   <dl>
     <div class="ask">
-      <dt>Python 3.12 installed</dt>
-      <dd>Your laptop only has 3.13, and some of the OCR engines we want to test don't publish builds for it yet. A five-minute install, and it removes the one dependency risk sitting on the most important phase of the project. Blocking at Phase 00.</dd>
-    </div>
-    <div class="ask">
-      <dt>Network posture of that host</dt>
+      <dt>Network posture of the GPU host</dt>
       <dd>Whether the GPU machine can reach the internet to download model weights, or is air-gapped and needs them carried across. Blocking at Phase 01.</dd>
     </div>
     <div class="ask">
@@ -820,15 +902,16 @@
 
 <section>
   <h2><span class="num">08</span>Immediate next step</h2>
-  <p>On your approval, Phase 00: rebuild the environment on Python 3.12, lay out the repository, and put the four provider interfaces and configuration in place. Small, fast, and it makes every later phase a matter of filling in implementations rather than restructuring.</p>
-  <p>If you'd rather see the hard part first, we can invert and prototype the Phase 01 page router on a handful of pages before building any structure around it. That answers the project's biggest unknown sooner, at the cost of some rework.</p>
+  <p><strong>Phase 00.</strong> Create the <code>backend/</code> package on the existing Python 3.13 environment, lay out the repository, and put the configuration and the four provider interfaces in place. Small and fast, and it makes every later phase a matter of filling in implementations rather than restructuring.</p>
+  <p>The alternative worth considering: invert and prototype the Phase 01 page router on a handful of real pages before building any structure around it. That answers the project's biggest unknown — whether the scans OCR cleanly — sooner, at the cost of some rework. Given that parsing carries roughly a third of the project's difficulty, spending a day on it early is defensible.</p>
+  <p>Either way, nothing further is needed from you to begin. The open questions in Section 07 become blocking at Phase 01, not now.</p>
 </section>
 
 <footer>
-  <span>Rev. A</span>
-  <span>Pre-implementation</span>
-  <span>Phases 00–09</span>
-  <span>Awaiting approval</span>
+  <span>Rev. B</span>
+  <span>Interface built</span>
+  <span>Backend not started</span>
+  <span>Next: Phase 00</span>
 </footer>
 
 </div>
