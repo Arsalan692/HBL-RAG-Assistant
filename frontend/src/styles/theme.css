@@ -1,0 +1,389 @@
+/* ---------------------------------------------------------------------------
+ * HBL RAG Assistant — theme tokens
+ *
+ * Ported from the Figma design system bundle
+ * ("Design System for HBL RAG Chatbot/src/styles/theme.css").
+ *
+ * Changes from the original, all additive:
+ *   1. --hbl-shadow is now redefined in .dark (the original left it as the
+ *      light-mode shadow, which reads as a grey halo on a dark canvas).
+ *   2. The --hbl-* variables are exposed to Tailwind in @theme inline so
+ *      utilities like `text-hbl-tertiary` and `bg-hbl-canvas` work.
+ *   3. Added --hbl-highlight for the cited-passage tint in the source panel.
+ * ------------------------------------------------------------------------- */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 15px;
+  /* HBL Canvas */
+  --hbl-canvas: #F7F8F7;
+  --hbl-surface: #FFFFFF;
+  --hbl-elevated: #FFFFFF;
+  /* HBL Brand — the teal from the official lockup, not the green the Figma
+     bundle shipped with. The variables keep their --hbl-green-* names so the
+     rest of the codebase is untouched by the change. */
+  --hbl-green: #009F8C;
+  --hbl-green-hover: #00B8A6;
+  --hbl-green-deep: #007A6B;
+  --hbl-green-ring: rgba(0, 159, 140, 0.4);
+
+  /* Accessible fill. White on the true brand teal is only 3.31:1, so anything
+     that carries text or an icon on top uses this deeper step instead. Borders,
+     focus rings, progress bars, the streaming caret and the mark itself keep
+     --hbl-green, because nothing sits on them. */
+  --hbl-solid: #008373;         /* white on this: 4.67:1 */
+  --hbl-solid-hover: #00695C;   /* 6.61:1 */
+  --hbl-solid-pressed: #00544A;
+  --hbl-on-solid: #FFFFFF;
+  /* HBL Text */
+  --hbl-text-primary: #0D0F0E;
+  --hbl-text-secondary: #5C6360;
+  --hbl-text-tertiary: #8A918D;
+  /* HBL Border */
+  --hbl-border: rgba(0, 0, 0, 0.08);
+  /* Shadow */
+  --hbl-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+  /* Cited passage tint in the source panel */
+  --hbl-highlight: rgba(0, 159, 140, 0.12);
+  --hbl-highlight-edge: rgba(0, 159, 140, 0.45);
+
+  /* Token contract */
+  --background: #F7F8F7;
+  --foreground: #0D0F0E;
+  --card: #FFFFFF;
+  --card-foreground: #0D0F0E;
+  --popover: #FFFFFF;
+  --popover-foreground: #0D0F0E;
+  --primary: #009F8C;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F0F1F0;
+  --secondary-foreground: #0D0F0E;
+  --muted: #F0F1F0;
+  --muted-foreground: #5C6360;
+  --accent: #E4F4F1;
+  --accent-foreground: #00695C;
+  --destructive: #C0392B;
+  --destructive-foreground: #FFFFFF;
+  --border: rgba(0, 0, 0, 0.08);
+  --input: transparent;
+  --input-background: #F7F8F7;
+  --switch-background: #C8CCC9;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: rgba(0, 159, 140, 0.4);
+  --chart-1: #009F8C;
+  --chart-2: #007A6B;
+  --chart-3: #5C6360;
+  --chart-4: #00B8A6;
+  --chart-5: #8A918D;
+  --radius: 0.75rem;
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #0D0F0E;
+  --sidebar-primary: #009F8C;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #E4F4F1;
+  --sidebar-accent-foreground: #00695C;
+  --sidebar-border: rgba(0, 0, 0, 0.08);
+  --sidebar-ring: rgba(0, 159, 140, 0.4);
+}
+
+.dark {
+  --hbl-canvas: #0B0D0C;
+  --hbl-surface: #131615;
+  --hbl-elevated: #1A1E1C;
+  --hbl-green: #2DD4BF;
+  --hbl-green-hover: #5EEAD4;
+  --hbl-green-deep: #14B8A6;
+  --hbl-green-ring: rgba(45, 212, 191, 0.4);
+
+  /* Dark mode inverts the relationship: the fill stays bright and the text on
+     it goes near-black, which reads at 10.47:1. White on this fill would be
+     1.86:1 — the worst contrast anywhere in the app before this was fixed. */
+  --hbl-solid: #2DD4BF;
+  --hbl-solid-hover: #5EEAD4;
+  --hbl-solid-pressed: #14B8A6;
+  --hbl-on-solid: #0B0D0C;
+  --hbl-text-primary: #F2F4F3;
+  --hbl-text-secondary: #A2AAA6;
+  --hbl-text-tertiary: #6E7671;
+  --hbl-border: rgba(255, 255, 255, 0.10);
+  --hbl-shadow: none;
+  --hbl-highlight: rgba(45, 212, 191, 0.14);
+  --hbl-highlight-edge: rgba(45, 212, 191, 0.45);
+
+  --background: #0B0D0C;
+  --foreground: #F2F4F3;
+  --card: #131615;
+  --card-foreground: #F2F4F3;
+  --popover: #1A1E1C;
+  --popover-foreground: #F2F4F3;
+  --primary: #2DD4BF;
+  --primary-foreground: #0B0D0C;
+  --secondary: #1A1E1C;
+  --secondary-foreground: #F2F4F3;
+  --muted: #1A1E1C;
+  --muted-foreground: #A2AAA6;
+  --accent: #10312D;
+  --accent-foreground: #2DD4BF;
+  --destructive: #E74C3C;
+  --destructive-foreground: #FFFFFF;
+  --border: rgba(255, 255, 255, 0.10);
+  --input: rgba(255, 255, 255, 0.06);
+  --input-background: #1A1E1C;
+  --switch-background: #3A4040;
+  --ring: rgba(45, 212, 191, 0.4);
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --chart-1: #2DD4BF;
+  --chart-2: #14B8A6;
+  --chart-3: #A2AAA6;
+  --chart-4: #5EEAD4;
+  --chart-5: #6E7671;
+  --sidebar: #131615;
+  --sidebar-foreground: #F2F4F3;
+  --sidebar-primary: #2DD4BF;
+  --sidebar-primary-foreground: #0B0D0C;
+  --sidebar-accent: #10312D;
+  --sidebar-accent-foreground: #2DD4BF;
+  --sidebar-border: rgba(255, 255, 255, 0.10);
+  --sidebar-ring: rgba(45, 212, 191, 0.4);
+}
+
+/* ---------------------------------------------------------------------------
+ * Motion
+ *
+ * One easing curve for everything — the iOS-style spring. Durations sit in a
+ * 180/220/260ms band: 180 for things that must feel instant (menus, hovers),
+ * 260 for things that carry distance (panels, sidebar collapse).
+ * ------------------------------------------------------------------------- */
+
+@keyframes hbl-shimmer {
+  from { background-position: -180% 0; }
+  to   { background-position: 180% 0; }
+}
+
+@keyframes hbl-caret {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* New messages fade in with an 8px rise. */
+@keyframes hbl-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The source panel springs in from the right. */
+@keyframes hbl-panel-in {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Menus scale up from their trigger origin and drop 8px into place. */
+@keyframes hbl-menu-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes hbl-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes hbl-modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@theme inline {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --animate-shimmer: hbl-shimmer 1.6s linear infinite;
+  --animate-caret: hbl-caret 1s steps(1, end) infinite;
+  --animate-rise: hbl-rise 260ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  --animate-panel-in: hbl-panel-in 260ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  --animate-menu-in: hbl-menu-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  --animate-overlay-in: hbl-overlay-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  --animate-modal-in: hbl-modal-in 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* HBL palette exposed as Tailwind utilities */
+  --color-hbl-canvas: var(--hbl-canvas);
+  --color-hbl-surface: var(--hbl-surface);
+  --color-hbl-elevated: var(--hbl-elevated);
+  --color-hbl-green: var(--hbl-green);
+  --color-hbl-green-hover: var(--hbl-green-hover);
+  --color-hbl-green-deep: var(--hbl-green-deep);
+  --color-hbl-solid: var(--hbl-solid);
+  --color-hbl-solid-hover: var(--hbl-solid-hover);
+  --color-hbl-solid-pressed: var(--hbl-solid-pressed);
+  --color-hbl-on-solid: var(--hbl-on-solid);
+  --color-hbl-primary: var(--hbl-text-primary);
+  --color-hbl-secondary: var(--hbl-text-secondary);
+  --color-hbl-tertiary: var(--hbl-text-tertiary);
+  --color-hbl-highlight: var(--hbl-highlight);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-size: var(--font-size);
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  p, h1, h2, h3, h4 { margin: 0; }
+
+  :focus-visible {
+    outline: 2px solid var(--hbl-green);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Thin, unobtrusive scrollbars — the source panel and sidebar both need them. */
+  .hbl-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--hbl-text-tertiary) transparent;
+  }
+  .hbl-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  .hbl-scroll::-webkit-scrollbar-track { background: transparent; }
+  .hbl-scroll::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 999px;
+  }
+  .hbl-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--hbl-text-tertiary);
+  }
+  .hbl-scroll-none { scrollbar-width: none; }
+  .hbl-scroll-none::-webkit-scrollbar { display: none; }
+
+  /* Range input — native styling is inconsistent and ignores the palette. */
+  .hbl-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--muted);
+    outline: none;
+  }
+  .hbl-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--hbl-green);
+    border: 2px solid var(--card);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+    transition: transform 180ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .hbl-range:active::-webkit-slider-thumb { transform: scale(0.92); }
+  .hbl-range::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--muted);
+  }
+  .hbl-range::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--hbl-green);
+    border: 2px solid var(--card);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+  }
+
+  /* Shimmer used by every skeleton placeholder. */
+  .hbl-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--hbl-text-tertiary) 22%, transparent) 50%,
+      transparent 100%
+    );
+    background-size: 180% 100%;
+    background-repeat: no-repeat;
+    animation: var(--animate-shimmer);
+  }
+}
+
+/* The user's own "Reduce motion" setting, and the OS-level preference, are
+   honoured the same way: keep the end state, drop the travel. */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(root),
+  ::view-transition-new(root) { animation: none !important; }
+}
+
+/* Theme switch: a full-canvas cross-fade rather than a hard repaint. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 260ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) { animation-name: hbl-fade-out; }
+::view-transition-new(root) { animation-name: hbl-fade-in; }
+
+@keyframes hbl-fade-out { to { opacity: 0; } }
+@keyframes hbl-fade-in { from { opacity: 0; } }

@@ -1,0 +1,834 @@
+<title>Policy Assistant Build Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+  :root {
+    --paper:      #F3F4F1;
+    --surface:    #FCFCFB;
+    --surface-2:  #EAEBE6;
+    --ink:        #16191C;
+    --ink-soft:   #3D454E;
+    --muted:      #6B7480;
+    --line:       #DBDCD6;
+    --line-soft:  #E7E8E3;
+    --accent:     #99303A;
+    --accent-ink: #99303A;
+    --accent-bg:  #F3E4E5;
+    --slate:      #2C4356;
+    --warn:       #9C6B18;
+    --warn-bg:    #F6EBD6;
+    --ok:         #2F6B4F;
+    --shadow:     0 1px 2px rgba(22,25,28,.05), 0 8px 24px -16px rgba(22,25,28,.25);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #121417;
+      --surface:    #1A1D21;
+      --surface-2:  #23272C;
+      --ink:        #E9E7E2;
+      --ink-soft:   #C3C7CC;
+      --muted:      #8C959F;
+      --line:       #2E3339;
+      --line-soft:  #262A2F;
+      --accent:     #DE6E77;
+      --accent-ink: #E88189;
+      --accent-bg:  #2C1D20;
+      --slate:      #8FB2CC;
+      --warn:       #D9A648;
+      --warn-bg:    #2B2317;
+      --ok:         #6FB98F;
+      --shadow:     0 1px 2px rgba(0,0,0,.3), 0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #121417;
+    --surface:    #1A1D21;
+    --surface-2:  #23272C;
+    --ink:        #E9E7E2;
+    --ink-soft:   #C3C7CC;
+    --muted:      #8C959F;
+    --line:       #2E3339;
+    --line-soft:  #262A2F;
+    --accent:     #DE6E77;
+    --accent-ink: #E88189;
+    --accent-bg:  #2C1D20;
+    --slate:      #8FB2CC;
+    --warn:       #D9A648;
+    --warn-bg:    #2B2317;
+    --ok:         #6FB98F;
+    --shadow:     0 1px 2px rgba(0,0,0,.3), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+    padding: 0 20px 96px;
+  }
+
+  .wrap { max-width: 1000px; margin: 0 auto; }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    padding: 56px 0 0;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 0;
+  }
+  .eyebrow {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-family: "Newsreader", Georgia, "Times New Roman", serif;
+    font-weight: 500;
+    font-size: clamp(2.4rem, 6vw, 3.9rem);
+    line-height: 1.04;
+    letter-spacing: -.02em;
+    text-wrap: balance;
+    margin: 0 0 14px;
+  }
+  .standfirst {
+    font-size: 1.1rem;
+    color: var(--ink-soft);
+    max-width: 62ch;
+    margin: 0 0 34px;
+  }
+
+  /* ---------- control block ---------- */
+
+  .control {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 56px;
+  }
+  .control div {
+    padding: 14px 18px 15px 0;
+    border-right: 1px solid var(--line-soft);
+  }
+  .control div:last-child { border-right: none; }
+  .control dt {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 5px;
+  }
+  .control dd {
+    margin: 0;
+    font-size: .95rem;
+    font-weight: 500;
+    color: var(--ink);
+  }
+
+  /* ---------- sections ---------- */
+
+  section { margin: 0 0 60px; scroll-margin-top: 24px; }
+
+  h2 {
+    font-family: "Newsreader", Georgia, serif;
+    font-weight: 500;
+    font-size: clamp(1.6rem, 3.2vw, 2.15rem);
+    line-height: 1.15;
+    letter-spacing: -.015em;
+    text-wrap: balance;
+    margin: 0 0 6px;
+    padding-top: 26px;
+    border-top: 1px solid var(--line);
+  }
+  h2 .num {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: .55em;
+    font-weight: 500;
+    color: var(--accent-ink);
+    letter-spacing: .05em;
+    margin-right: .7em;
+    vertical-align: .18em;
+  }
+  h3 {
+    font-family: "Public Sans", sans-serif;
+    font-size: 1.02rem;
+    font-weight: 600;
+    letter-spacing: -.005em;
+    margin: 32px 0 8px;
+  }
+  h4 {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 22px 0 8px;
+  }
+
+  p { max-width: 70ch; margin: 0 0 14px; }
+  .lede { color: var(--ink-soft); max-width: 70ch; }
+
+  ul, ol { max-width: 70ch; padding-left: 20px; margin: 0 0 14px; }
+  li { margin-bottom: 6px; }
+  li::marker { color: var(--muted); }
+
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  code {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: .86em;
+    background: var(--surface-2);
+    border-radius: 3px;
+    padding: .12em .38em;
+    color: var(--ink);
+  }
+
+  a { color: var(--accent-ink); }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  /* ---------- phase cards ---------- */
+
+  .phase {
+    display: grid;
+    grid-template-columns: 108px 1fr;
+    gap: 0 28px;
+    border-top: 1px solid var(--line-soft);
+    padding: 26px 0 4px;
+  }
+  .phase:first-of-type { border-top: 1px solid var(--line); }
+
+  .phase-rail { position: relative; }
+  .phase-code {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--line);
+    letter-spacing: -.03em;
+    display: block;
+  }
+  .phase-tag {
+    display: inline-block;
+    margin-top: 10px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 3px 6px;
+    white-space: nowrap;
+  }
+  .phase-tag.gate {
+    color: var(--accent-ink);
+    border-color: var(--accent);
+    background: var(--accent-bg);
+  }
+  .phase-body h3 { margin-top: 0; }
+  .phase-body > p:last-child { margin-bottom: 0; }
+
+  .done {
+    background: var(--surface);
+    border: 1px solid var(--line-soft);
+    border-left: 2px solid var(--ok);
+    border-radius: 0 4px 4px 0;
+    padding: 11px 16px;
+    margin: 16px 0 22px;
+    max-width: 70ch;
+    font-size: .93rem;
+    color: var(--ink-soft);
+  }
+  .done b {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--ok);
+    display: block;
+    margin-bottom: 3px;
+    font-weight: 500;
+  }
+
+  /* ---------- callouts ---------- */
+
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 22px 24px;
+    margin: 24px 0;
+    box-shadow: var(--shadow);
+  }
+  .callout.warn {
+    background: var(--warn-bg);
+    border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  }
+  .callout > :last-child { margin-bottom: 0; }
+  .callout-label {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--warn);
+    font-weight: 500;
+    margin: 0 0 8px;
+  }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; margin: 18px 0 22px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 560px;
+    font-size: .92rem;
+  }
+  th {
+    text-align: left;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    padding: 0 16px 8px 0;
+    border-bottom: 1px solid var(--ink);
+    vertical-align: bottom;
+  }
+  td {
+    padding: 11px 16px 11px 0;
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: top;
+    color: var(--ink-soft);
+  }
+  td:first-child { color: var(--ink); font-weight: 500; }
+  td code { background: none; padding: 0; color: var(--slate); }
+
+  .sev {
+    display: inline-block;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .sev.high { background: var(--accent-bg); color: var(--accent-ink); }
+  .sev.med  { background: var(--warn-bg);   color: var(--warn); }
+
+  /* ---------- diagram ---------- */
+
+  figure { margin: 26px 0 30px; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption {
+    font-size: .85rem;
+    color: var(--muted);
+    margin-top: 12px;
+    max-width: 66ch;
+  }
+  .svg-label { font-family: "Public Sans", sans-serif; font-size: 12px; font-weight: 500; }
+  .svg-mono  { font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: .06em; }
+  .svg-cond  { font-family: "JetBrains Mono", monospace; font-size: 9.5px; }
+
+  /* ---------- decisions ---------- */
+
+  .ask {
+    border-top: 1px solid var(--line-soft);
+    padding: 18px 0;
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    gap: 4px 28px;
+  }
+  .ask:first-of-type { border-top: 1px solid var(--line); }
+  .ask dt { font-weight: 600; color: var(--ink); }
+  .ask dd { margin: 0; color: var(--ink-soft); max-width: 62ch; }
+
+  footer {
+    border-top: 2px solid var(--ink);
+    margin-top: 64px;
+    padding-top: 18px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+  }
+
+  @media (max-width: 660px) {
+    .phase { grid-template-columns: 1fr; gap: 0; }
+    .phase-rail { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .phase-code { font-size: 1.4rem; color: var(--accent-ink); }
+    .phase-tag { margin-top: 0; }
+    .ask { grid-template-columns: 1fr; }
+    .control div { border-right: none; border-bottom: 1px solid var(--line-soft); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Build Plan &nbsp;/&nbsp; Rev. A &nbsp;/&nbsp; Pre-implementation</p>
+  <h1>Retrieval assistant for<br>HBL policy documents</h1>
+  <p class="standfirst">A grounded question-answering system over ~22 internal policy PDFs — mixed digital and scanned, table-heavy, with documents added and removed over time. Ten phases, each with a gate you sign off before the next begins.</p>
+</header>
+
+<dl class="control">
+  <div><dt>Corpus</dt><dd>~22 PDFs · ~1,300 pp.</dd></div>
+  <div><dt>Posture</dt><dd>Fully offline</dd></div>
+  <div><dt>Target</dt><dd>POC, production-shaped</dd></div>
+  <div><dt>Dev host</dt><dd>CPU laptop</dd></div>
+  <div><dt>Run host</dt><dd>RTX 4060 Ti · 16 GB</dd></div>
+</dl>
+
+<section>
+  <h2><span class="num">01</span>Constraints this plan is built around</h2>
+  <p class="lede">Five facts shape every decision below. If any of them is wrong, tell me now rather than at Phase 05.</p>
+
+  <h3>Split development and execution</h3>
+  <p>You build here on a CPU-only laptop and move the code to the office GPU box whenever something needs to actually run. That is a real architectural constraint, not a logistics detail: <strong>no absolute paths, no machine-specific assumptions, every model name in <code>.env</code>, and a headless CLI for every heavy operation</strong> so ingestion can run on the GPU box without a browser. Transfer is a <code>git pull</code> plus <code>pip install -r requirements.txt</code>, never a manual reconciliation.</p>
+
+  <h3>Nothing leaves the building</h3>
+  <p>Confirmed: this data may not touch a cloud API. Every model in the stack — OCR, embedding, reranking, generation — runs locally on the office GPU workstation. No hosted inference, no telemetry, no external calls at query time.</p>
+  <p>The provider interfaces stay regardless. Not as a route back to cloud, but because a fully local stack changes models far more often than a hosted one does: you will swap OCR engines during the Phase 01 bench-off, and you will re-pick the generation model once we know the workstation's VRAM. Each of those needs to be a config change rather than a refactor.</p>
+  <p>One practical consequence: <strong>model weights have to get onto the GPU host somehow.</strong> If that machine has internet access, the libraries fetch them on first run. If it is genuinely air-gapped, we pre-download every model to a local cache and copy it across — worth confirming early, because discovering it during Phase 01 stalls the bench-off.</p>
+
+  <h3>Documents are heterogeneous at the page level</h3>
+  <p>Some files are fully digital, some are complete scans, and some are mixed — a typed policy with a scanned annexure, or a single page of typed text with a photographed table dropped into it. Classification therefore happens <em>per page</em>, never per file. Section 02 covers this.</p>
+
+  <h3>Answers carry legal weight</h3>
+  <p>This is compliance material. A fluent, confident, wrong answer about a KYC threshold or a sanctions obligation is worse than no answer. Every response cites document, page and section, and the system refuses rather than guesses when retrieval comes back thin.</p>
+
+  <h3>The corpus mutates</h3>
+  <p>Adding and deleting documents is a first-class operation, not an afterthought. Deletion has to be total — vectors, keyword index, registry row, cached page images, parsed markdown — with no orphaned fragments that keep surfacing in answers.</p>
+</section>
+
+<section>
+  <h2><span class="num">02</span>The mixed-page problem, solved properly</h2>
+  <p class="lede">This is the part most RAG tutorials get wrong, and the part your corpus will punish hardest. A file-level "is this scanned?" check fails the moment one PDF contains both kinds of page.</p>
+
+  <p>Every page is probed independently with PyMuPDF and scored on three signals before any extraction happens:</p>
+
+  <ul>
+    <li><strong>Character yield</strong> — how much extractable text the page's text layer actually returns.</li>
+    <li><strong>Raster coverage</strong> — the fraction of page area occupied by embedded images.</li>
+    <li><strong>Text sanity</strong> — a garble score. Some scanned documents already carry a bad text layer baked in by an office scanner. It looks like text to the extractor and reads like noise to the model, so a page whose text layer is mostly broken ligatures and stray glyphs is forced down the OCR path regardless of character count.</li>
+  </ul>
+
+  <figure>
+    <svg viewBox="0 0 900 300" role="img" aria-label="Flowchart: each PDF page is probed, then routed to digital extraction, OCR, or a merged hybrid path, all converging on a single markdown output with per-page provenance.">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g color="var(--muted)" stroke="currentColor" stroke-width="1.2" fill="none">
+        <path d="M 156 150 L 214 150" marker-end="url(#ar)"/>
+        <path d="M 320 128 L 320 62 L 404 62" marker-end="url(#ar)"/>
+        <path d="M 320 150 L 404 150" marker-end="url(#ar)"/>
+        <path d="M 320 172 L 320 238 L 404 238" marker-end="url(#ar)"/>
+        <path d="M 596 62  L 668 62  L 668 138" marker-end="url(#ar)"/>
+        <path d="M 596 150 L 668 150" marker-end="url(#ar)"/>
+        <path d="M 596 238 L 668 238 L 668 162" marker-end="url(#ar)"/>
+      </g>
+
+      <!-- source -->
+      <rect x="16" y="120" width="140" height="60" rx="4" fill="var(--surface-2)" stroke="var(--line)"/>
+      <text x="86" y="145" text-anchor="middle" class="svg-label" fill="var(--ink)">PDF page</text>
+      <text x="86" y="163" text-anchor="middle" class="svg-mono" fill="var(--muted)">n of N</text>
+
+      <!-- probe -->
+      <rect x="214" y="112" width="106" height="76" rx="4" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+      <text x="267" y="138" text-anchor="middle" class="svg-label" fill="var(--ink)">Probe</text>
+      <text x="267" y="155" text-anchor="middle" class="svg-cond" fill="var(--muted)">chars · raster</text>
+      <text x="267" y="169" text-anchor="middle" class="svg-cond" fill="var(--muted)">· garble</text>
+
+      <!-- three routes -->
+      <rect x="404" y="36" width="192" height="52" rx="4" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="418" y="58" class="svg-mono" fill="var(--accent-ink)">DIGITAL</text>
+      <text x="418" y="76" class="svg-cond" fill="var(--muted)">text layer + table detect</text>
+
+      <rect x="404" y="124" width="192" height="52" rx="4" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="418" y="146" class="svg-mono" fill="var(--accent-ink)">HYBRID</text>
+      <text x="418" y="164" class="svg-cond" fill="var(--muted)">both paths, then merged</text>
+
+      <rect x="404" y="212" width="192" height="52" rx="4" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="418" y="234" class="svg-mono" fill="var(--accent-ink)">SCANNED</text>
+      <text x="418" y="252" class="svg-cond" fill="var(--muted)">render 300dpi → OCR</text>
+
+      <!-- output -->
+      <rect x="668" y="112" width="216" height="76" rx="4" fill="var(--surface-2)" stroke="var(--line)"/>
+      <text x="776" y="140" text-anchor="middle" class="svg-label" fill="var(--ink)">Normalised markdown</text>
+      <text x="776" y="159" text-anchor="middle" class="svg-cond" fill="var(--muted)">+ per-page provenance record</text>
+      <text x="776" y="175" text-anchor="middle" class="svg-cond" fill="var(--muted)">method · confidence · page no.</text>
+    </svg>
+    <figcaption>The hybrid branch is the one that matters. It extracts the text layer <em>and</em> OCRs the raster regions, then merges the two with fuzzy overlap detection so a caption that appears in both streams isn't duplicated into the chunk.</figcaption>
+  </figure>
+
+  <p>Everything converges on one human-readable artefact per document: a markdown file with page markers, plus a provenance record noting which method handled each page and how confident it was. <strong>That file is your quality gate.</strong> You open it, you read it, and you can see immediately whether a scanned annexure came through clean or came through as soup — before a single vector has been computed.</p>
+
+  <h4>Tables</h4>
+  <p>Tables are extracted to markdown and wrapped in atomic markers so the chunker can never split one across a boundary. Half a table is worse than no table: the model reads the surviving rows as the complete picture and answers accordingly. Where a table is too large to keep whole, it is repeated with its header row in each part and labelled as continued.</p>
+</section>
+
+<section>
+  <h2><span class="num">03</span>Architecture</h2>
+  <p class="lede">Three independent subsystems over shared storage. Ingestion is offline and slow; retrieval and generation are online and fast. Keeping them separate is what lets ingestion run on the GPU box overnight while you develop the UI on the laptop.</p>
+
+  <div class="scroller">
+    <table>
+      <thead>
+        <tr><th style="width:22%">Layer</th><th style="width:30%">Choice</th><th>Why this one</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>PDF probe &amp; extract</td><td>PyMuPDF</td><td>Fastest reliable access to text layers, image regions, font metrics and page rasterisation in one library.</td></tr>
+        <tr><td>OCR</td><td><em>Bench-off in Phase 01</em></td><td>Candidates: Docling, MinerU, Surya, PaddleOCR, and a local vision model such as Qwen2.5-VL on the GPU. Chosen on your real pages, not on published benchmarks.</td></tr>
+        <tr><td>Embeddings</td><td><code>BAAI/bge-m3</code></td><td>Strong on long passages, handles the acronym-dense register of policy text, runs comfortably on your GPU.</td></tr>
+        <tr><td>Keyword search</td><td>SQLite FTS5 (BM25)</td><td>Deletes transactionally alongside the registry row — no second index to drift out of sync.</td></tr>
+        <tr><td>Vector store</td><td>Qdrant, embedded mode</td><td>No Docker needed to develop; filtered delete by <code>doc_id</code> is one call; payload indexes make year filters cheap.</td></tr>
+        <tr><td>Reranker</td><td><code>bge-reranker-v2-m3</code></td><td>Cross-encoder over ~30 candidates. The single largest quality gain after parsing.</td></tr>
+        <tr><td>Generation</td><td>Qwen3-14B, 4-bit, served by Ollama</td><td>Best quality that fits alongside the other two models in 16 GB. Sized in the memory budget below.</td></tr>
+        <tr><td>API</td><td>FastAPI + SSE streaming</td><td>Async, typed, self-documenting, and the natural shape if HBL ever wants to consume it from elsewhere.</td></tr>
+        <tr><td>Interface</td><td>Vite + React 18 + Tailwind v4 + shadcn/ui</td><td>The stack the Figma design system already ships in. A plain single-page app — no server rendering needed, it just talks to FastAPI over HTTP.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>The design system already exists</h3>
+  <p>A Figma-generated bundle sits in <code>Design System for HBL RAG Chatbot/</code>. It is not the application — it is a single reference page that displays every component twice, once light and once dark, like a printed style guide. Three parts of it matter, and they matter differently:</p>
+
+  <div class="scroller">
+    <table>
+      <thead>
+        <tr><th style="width:28%">What's in the bundle</th><th style="width:22%">Status</th><th>How we use it</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>src/styles/theme.css</code></td>
+          <td><strong>Adopted, one correction</strong></td>
+          <td>The complete colour system as CSS variables — surfaces, text, borders, radii — already wired in the shape shadcn expects. One change on adoption: the bundle's accent was green <code>#009A49</code>, which is not an HBL colour. The official lockup is teal <code>#009F8C</code> with lime <code>#E0DF00</code>, so the accent now carries the real brand teal (lifted to <code>#2DD4BF</code> in dark mode, for legibility on the dark canvas).</td>
+        </tr>
+        <tr>
+          <td><code>src/app/components/ui/</code></td>
+          <td><strong>Production ready</strong></td>
+          <td>48 standard shadcn/ui components already reading from those variables. Buttons, dialogs, tables, tooltips, sidebar, sonner toasts. Copies across untouched.</td>
+        </tr>
+        <tr>
+          <td><code>src/app/App.tsx</code></td>
+          <td><strong>Specification, not code</strong></td>
+          <td>Every screen element drawn with hard-coded inline styles rather than Tailwind classes. It shows exactly how things should look; it cannot be imported. We rebuild these as real components against the tokens.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>That last row is the one to be clear-eyed about. The showcase defines the look of the composer, the message bubbles, the inline citation chip, the source card, the citation pills, the sidebar, the skeleton loader and the empty state — precise sizes, radii, weights and every interaction state. That is genuinely valuable and saves the hard part, which is deciding. But each one gets written properly during Phase 07 rather than lifted.</p>
+
+  <p>Two cleanups when we adopt it: drop Material UI, which Figma bundled alongside shadcn and which we will not use, and drop <code>next-themes</code> for a plain theme provider, since there is no Next.js here.</p>
+
+  <h4>What the design implies that the plan didn't</h4>
+  <p>The sidebar in the showcase reads <em>New Chat · History · Saved · Documents · Settings</em>, and the account menu ends in <em>Sign Out</em>. Those are features, not decoration — saved chat history, bookmarked answers, and sign-in all have to exist behind them. They are captured as scope in Phase 07 below.</p>
+  <p>The reverse is also true: the showcase has no screen for uploading a document, no ingestion progress, and no delete confirmation, even though those are core requirements. Phase 07 designs them in the same visual language.</p>
+
+  <h3>Fitting three models into 16 GB</h3>
+  <p>Answering one question uses three different models at once. All three have to be in GPU memory together, so they need a budget:</p>
+
+  <div class="scroller">
+    <table>
+      <thead>
+        <tr><th style="width:20%">Model</th><th style="width:26%">Job</th><th style="width:14%">Memory</th><th>Note</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Qwen3-14B (4-bit)</td><td>Writes the answer</td><td>~9 GB</td><td>Plus ~2 GB of working memory for a 16k-token context window.</td></tr>
+        <tr><td>bge-m3</td><td>Turns text into vectors</td><td>~2.3 GB</td><td>Only model needed during ingestion, so it gets the whole card to itself then.</td></tr>
+        <tr><td>bge-reranker-v2-m3</td><td>Re-sorts search results</td><td>~2.3 GB</td><td>Runs on ~30 short passages per question. Fast.</td></tr>
+        <tr><td colspan="2"><strong>Total</strong></td><td><strong>~15.6 GB</strong></td><td>Tight against 16 GB. Two escape hatches below.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>If that runs out of memory in practice, we take one of two steps, in this order: convert the two small models to 8-bit, which roughly halves them and costs almost no accuracy; or drop the answering model to 8B, which frees about 4 GB but is a real quality loss on policy reasoning. We try the first before the second.</p>
+
+  <div class="callout">
+    <p><strong>One honest caveat about this card.</strong> The 4060 Ti has plenty of memory but fairly slow memory <em>speed</em> compared to bigger cards. That doesn't affect answer quality at all — it affects how fast words appear. Expect roughly 20–25 words per second from the 14B model, which reads as comfortable in a streaming chat window but is not instant. Ingestion is unaffected; that work is a one-time overnight job either way.</p>
+  </div>
+
+  <h3>On frameworks — why no LangChain</h3>
+  <p>The obvious question, and worth answering explicitly rather than by omission. LangChain is excellent at what it is for: assembling a working RAG baseline out of standard parts in an afternoon. The difficulty is that <strong>almost none of this project's actual work is standard parts.</strong></p>
+
+  <div class="scroller">
+    <table>
+      <thead>
+        <tr><th style="width:30%">What we need</th><th style="width:34%">What the framework offers</th><th>Result</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Per-page scanned/digital/hybrid routing</td><td>Loaders that return page text</td><td>Written from scratch either way</td></tr>
+        <tr><td>Section-aware chunking, atomic tables</td><td>Character and token splitters</td><td>Written from scratch either way</td></tr>
+        <tr><td>Persistent BM25 that deletes with the document</td><td><code>BM25Retriever</code> — in-memory, rebuilt from the full corpus, no deletion</td><td>Actively wrong for the requirement</td></tr>
+        <tr><td>Total, verifiable document deletion</td><td>Inconsistent <code>delete()</code> support across store wrappers</td><td>Drop to the Qdrant client anyway</td></tr>
+        <tr><td>Per-stage retrieval scores for tuning</td><td>Composed retrievers with scores buried mid-chain</td><td>Fighting the abstraction during the phase that matters most</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>So the framework would carry roughly the last twenty percent of the pipeline — the part that is already a thin call to Qdrant or a cross-encoder — while the eighty percent that is genuinely hard sits outside it. That trade is worth taking when the alternative is a lot of code. Here the orchestration it replaces is a few hundred lines, and in exchange it adds a large dependency tree, a fast-moving API, and a layer between you and the retrieval scores exactly when you need to see them.</p>
+
+  <p><strong>Decided: no framework.</strong> We call the same libraries LangChain would have called — PyMuPDF, the Qdrant client, sentence-transformers, SQLite FTS5, Ollama. Fewer moving parts, and full visibility into the retrieval scores during the phase where that visibility is worth the most.</p>
+
+  <div class="callout warn">
+    <p class="callout-label">Environment note</p>
+    <p>Your laptop has <strong>Python 3.13.5</strong> and nothing else. Most of this stack runs fine on 3.13 — but a few OCR engines, the PaddleOCR family in particular, don't publish 3.13 builds yet. Since OCR is the phase we can least afford to be blocked on, Phase 00 rebuilds on <strong>Python 3.12</strong>, which every library in the plan supports today. Five minutes now, versus discovering a missing engine halfway through the bench-off.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">04</span>Phases</h2>
+  <p class="lede">Sequential, because each phase consumes the previous one's output. Phases marked <em>Gate</em> stop and wait for you — those are the points where a bad result is cheap to fix and expensive to discover later.</p>
+
+  <div class="phase">
+    <div class="phase-rail"><span class="phase-code">00</span><span class="phase-tag">Foundation</span></div>
+    <div class="phase-body">
+      <h3>Skeleton, config and provider contracts</h3>
+      <p>Python 3.12 environment; repository layout; <code>pydantic-settings</code> configuration driven entirely by <code>.env</code>; structured logging; and the four provider protocols — <code>LLM</code>, <code>Embedder</code>, <code>Reranker</code>, <code>OCR</code> — that every later phase codes against. A <code>cli</code> entry point that all heavy operations hang off.</p>
+      <div class="done"><b>Done when</b><code>python -m app.cli health</code> prints the resolved config and the active provider for each of the four interfaces.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-rail"><span class="phase-code">01</span><span class="phase-tag gate">Gate</span></div>
+    <div class="phase-body">
+      <h3>Parsing: page router, OCR, tables</h3>
+      <p>The page classifier from Section 02, all three extraction routes, the hybrid merge, table extraction to markdown, and per-document output with provenance. Then a bench-off: the same five pages — one clean digital, one full scan, one mixed, one dense table, one poor-quality scan — run through each OCR candidate, output placed side by side.</p>
+      <p><strong>This phase is roughly a third of the project's real difficulty.</strong> Everything downstream is cheap to redo; bad parsing is invisible and poisons every answer.</p>
+      <div class="done"><b>Gate</b>You read the generated markdown for a fully scanned policy and a mixed one, and confirm the tables are legible and the text is clean. Nothing proceeds until you do.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-rail"><span class="phase-code">02</span><span class="phase-tag">Chunking</span></div>
+    <div class="phase-body">
+      <h3>Structure-aware splitting and metadata</h3>
+      <p>Policy documents are hierarchies — <code>4.</code>, <code>4.1</code>, <code>4.1.2</code> — so splits follow section boundaries, detected from numbering patterns plus font-weight and size heuristics. Target ~700 tokens with ~120 overlap, tables atomic. Every chunk carries <code>doc_id</code>, title, year, section breadcrumb and page number; those fields become the citation the user sees.</p>
+      <div class="done"><b>Done when</b>A chunk dump shows correct section breadcrumbs, no table split across a boundary, and no chunk that begins mid-sentence with no context.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-rail"><span class="phase-code">03</span><span class="phase-tag">Storage</span></div>
+    <div class="phase-body">
+      <h3>Index, registry, and true deletion</h3>
+      <p>Qdrant collection with payload indexes; a SQLite registry holding one row per document with its SHA-256, page count, chunk count, status and timestamps; FTS5 for keyword search in the same database. Ingestion runs as a background job with real status transitions — <code>queued → parsing → ocr → embedding → ready</code> or <code>failed</code> — because a 60-page scanned PDF takes minutes and the UI needs something honest to show.</p>
+      <p>The SHA-256 catches exact re-uploads, which your corpus already contains: two copies of the AML/CFT/KYC policy at identical size, and a duplicated Compliance Program file.</p>
+      <div class="done"><b>Done when</b>Ingest three documents, delete one, and confirm by query that not one fragment of it can be retrieved — vectors, keyword hits, cached page images and parsed markdown all gone.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-rail"><span class="phase-code">04</span><span class="phase-tag">Retrieval</span></div>
+    <div class="phase-body">
+      <h3>Hybrid search with reranking</h3>
+      <p>Dense top-30 and BM25 top-30, fused with reciprocal rank fusion, reranked by cross-encoder, cut to top-8. Hybrid is not optional here: semantic search alone reliably misses exact identifiers, and your corpus is built on them — <code>A-INST-2025-01</code>, CDD, EDD, STR, PEP, threshold figures, clause numbers. A curated acronym glossary expands queries before search so "CDD" and "customer due diligence" reach the same passages.</p>
+      <div class="done"><b>Done when</b>The evaluation harness reports recall@8 against the golden set, with an ablation table showing vector-only, hybrid, and hybrid-plus-rerank side by side.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-rail"><span class="phase-code">05</span><span class="phase-tag">Answering</span></div>
+    <div class="phase-body">
+      <h3>Grounded generation with citations</h3>
+      <p>Numbered context blocks, a strict citation contract, and explicit refusal when retrieval is weak. Follow-up questions are rewritten into standalone queries before search, so "what about for corporate customers?" resolves against the previous turn. Responses stream token by token. Where two retrieved chunks come from different vintages of the same policy, the newer is preferred and the conflict is stated rather than silently resolved.</p>
+      <div class="done"><b>Done when</b>Every answer names document, page and section; and a question the corpus genuinely doesn't cover is refused cleanly instead of being improvised.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-rail"><span class="phase-code">06</span><span class="phase-tag">API</span></div>
+    <div class="phase-body">
+      <h3>FastAPI service</h3>
+      <p>Chat with SSE streaming; document upload returning a job id; document list with live status; delete; a page-image endpoint that powers citation previews; health. Typed request and response models throughout, so the UI is generated against a contract rather than guesses.</p>
+      <div class="done"><b>Done when</b>The complete upload → ingest → ask → cite → delete cycle runs from the interactive API docs with no UI present.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-rail"><span class="phase-code">07</span><span class="phase-tag">Interface</span></div>
+    <div class="phase-body">
+      <h3>The web application</h3>
+      <p>Built on the Figma design system: tokens and shadcn components copied over, showcase components rebuilt properly. Inter throughout, 15px base, light and dark.</p>
+
+      <h4>Designed already — rebuild to spec</h4>
+      <ul>
+        <li><strong>Chat</strong> — composer, user and assistant bubbles, the inline citation chip inside the answer text, source cards, citation pills, skeleton loader while the answer streams, empty state.</li>
+        <li><strong>Sidebar</strong> — navigation items with active, hover and disabled states, and a count badge on Documents.</li>
+        <li><strong>Overlays</strong> — tooltip, dropdown menu, modal, and the three toast variants.</li>
+      </ul>
+
+      <h4>Not designed yet — we design them in the same language</h4>
+      <ul>
+        <li><strong>Document library</strong> — the list, drag-and-drop upload, per-document ingestion progress through its five states, and delete behind a confirmation modal. The modal pattern already exists in the showcase; it becomes the delete confirmation.</li>
+        <li><strong>Source viewer</strong> — clicking a citation opens a panel showing the real page image with the cited passage highlighted. This is what turns a plausible answer into a verifiable one, and it is the single most valuable screen in the product.</li>
+        <li><strong>Sign-in</strong> — implied by the account menu.</li>
+      </ul>
+
+      <h4>Scope the sidebar commits us to</h4>
+      <p>Chat history and saved answers both need storing per user, which adds tables to the same SQLite database the document registry lives in. Small work, but real work, and it was not in the original plan.</p>
+
+      <div class="done"><b>Done when</b>Nothing a user needs to do requires a terminal.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-rail"><span class="phase-code">08</span><span class="phase-tag gate">Gate</span></div>
+    <div class="phase-body">
+      <h3>Evaluation</h3>
+      <p>Around 40 golden question–answer pairs written from the real documents, covering factual lookup, table reading, multi-section synthesis, questions answerable only from scanned pages, and questions the corpus cannot answer at all. Retrieval scored on recall and MRR; answers scored for groundedness and correctness.</p>
+      <p>This is also the section of your presentation that turns "I built a chatbot" into "I measured it, and here is what each design decision was worth."</p>
+      <div class="done"><b>Gate</b>You write or approve the golden set. I can draft candidates from the parsed text, but only you can confirm the expected answers are right.</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-rail"><span class="phase-code">09</span><span class="phase-tag">Hardening</span></div>
+    <div class="phase-body">
+      <h3>Production shaping</h3>
+      <p>API-key or JWT authentication; an audit log of every question, retrieved sources and answer, which a bank will require; rate limiting; redaction of document content from application logs; <code>docker-compose</code> for the GPU host; and a backup and restore path for Qdrant plus SQLite so a corrupted index doesn't mean re-OCRing 1,300 pages.</p>
+      <div class="done"><b>Done when</b>The stack comes up from a clean checkout with one command, and a restore from backup reproduces a working index without re-ingestion.</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">05</span>The versioning hazard in your corpus</h2>
+  <p class="lede">Worth calling out separately, because it is already present in the file list you showed me and it produces the most dangerous class of failure this system can have.</p>
+
+  <p>Several policies appear more than once, in more than one vintage:</p>
+  <ul>
+    <li><code>Global AML CFT CPF and KYC Policy – 2023</code> alongside the 2025 <code>A-INST-2025-01</code> enclosure of the same policy.</li>
+    <li><code>Sanctions Compliance Policy – 2023</code> alongside its 2025 enclosure.</li>
+    <li><code>Compliance Risk Policy &amp; Program</code> alongside <code>Compliance Risk Policy 2023 – Portal Version (2)</code>.</li>
+    <li>Two byte-identical copies of the AML/KYC enclosure, and a duplicated Compliance Program file.</li>
+  </ul>
+
+  <p>Ask a threshold question and the retriever may return the superseded 2023 clause. The model has no way to know it is stale, and if both vintages surface it reads them as corroboration — producing an answer that is <em>more</em> confident precisely because it is drawing on an obsolete source. Nothing about the output looks wrong.</p>
+
+  <p>The treatment runs across three phases: SHA-256 deduplication at ingest removes the exact copies; a <code>policy_family</code> and <code>year</code> pair is extracted from filename and cover page at chunking; and at answer time the newer vintage is preferred, with any genuine disagreement surfaced to the reader rather than resolved silently. The library UI also marks superseded documents so a user can see the corpus contains both.</p>
+</section>
+
+<section>
+  <h2><span class="num">06</span>Risks</h2>
+  <div class="scroller">
+    <table>
+      <thead>
+        <tr><th style="width:26%">Risk</th><th style="width:12%">Severity</th><th>Mitigation</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>OCR quality on poor scans</td>
+          <td><span class="sev high">High</span></td>
+          <td>Bench multiple engines on your actual pages at Phase 01 and gate on human inspection. Provenance records flag low-confidence pages so they can be re-run or manually corrected.</td>
+        </tr>
+        <tr>
+          <td>Superseded policy versions</td>
+          <td><span class="sev high">High</span></td>
+          <td>Deduplication, version metadata, recency preference, explicit conflict disclosure. Section 05.</td>
+        </tr>
+        <tr>
+          <td>Complex tables losing structure</td>
+          <td><span class="sev high">High</span></td>
+          <td>Layout-aware extraction, atomic table chunks, header repetition on continuation. Table questions form a named category in the golden set.</td>
+        </tr>
+        <tr>
+          <td>Acronym and identifier misses</td>
+          <td><span class="sev med">Medium</span></td>
+          <td>BM25 alongside dense retrieval, plus a curated glossary that expands queries before search.</td>
+        </tr>
+        <tr>
+          <td>Local generation model too weak for policy reasoning</td>
+          <td><span class="sev high">High</span></td>
+          <td>No cloud fallback exists, so this is the constraint to respect rather than route around: keep retrieved context tight and well-ordered, ask the model to extract and cite rather than synthesise freely, and size the model to the VRAM we actually have. Measured at Phase 08, not assumed.</td>
+        </tr>
+        <tr>
+          <td>Model weights unavailable on an air-gapped host</td>
+          <td><span class="sev med">Medium</span></td>
+          <td>Pre-download every model into a portable cache directory and transfer it with the code. Confirm the GPU host's network posture before Phase 01.</td>
+        </tr>
+        <tr>
+          <td>Ingestion time on 1,300 pages</td>
+          <td><span class="sev med">Medium</span></td>
+          <td>Headless CLI ingestion, resumable per document, run on the GPU host outside working hours. Parsed output is cached, so re-chunking and re-embedding never re-OCR.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">07</span>What I need from you</h2>
+  <p class="lede">None of these block Phase 00. Each becomes blocking at a specific point, noted below.</p>
+
+  <dl>
+    <div class="ask">
+      <dt>Python 3.12 installed</dt>
+      <dd>Your laptop only has 3.13, and some of the OCR engines we want to test don't publish builds for it yet. A five-minute install, and it removes the one dependency risk sitting on the most important phase of the project. Blocking at Phase 00.</dd>
+    </div>
+    <div class="ask">
+      <dt>Network posture of that host</dt>
+      <dd>Whether the GPU machine can reach the internet to download model weights, or is air-gapped and needs them carried across. Blocking at Phase 01.</dd>
+    </div>
+    <div class="ask">
+      <dt>Language of the documents</dt>
+      <dd>I'm assuming English throughout. Any Urdu content changes the embedding model and OCR engine selection. Blocking at Phase 01.</dd>
+    </div>
+    <div class="ask">
+      <dt>Intended users</dt>
+      <dd>Branch staff asking practical questions, or compliance officers doing clause-level research. This shapes answer length, tone, and how prominent citations are. Blocking at Phase 05.</dd>
+    </div>
+    <div class="ask">
+      <dt>Five representative pages</dt>
+      <dd>Not the documents — just confirmation that you can identify one clean digital page, one full scan, one mixed page, one dense table and one poor-quality scan to use as the Phase 01 bench set. You run them; I read the output.</dd>
+    </div>
+  </dl>
+</section>
+
+<section>
+  <h2><span class="num">08</span>Immediate next step</h2>
+  <p>On your approval, Phase 00: rebuild the environment on Python 3.12, lay out the repository, and put the four provider interfaces and configuration in place. Small, fast, and it makes every later phase a matter of filling in implementations rather than restructuring.</p>
+  <p>If you'd rather see the hard part first, we can invert and prototype the Phase 01 page router on a handful of pages before building any structure around it. That answers the project's biggest unknown sooner, at the cost of some rework.</p>
+</section>
+
+<footer>
+  <span>Rev. A</span>
+  <span>Pre-implementation</span>
+  <span>Phases 00–09</span>
+  <span>Awaiting approval</span>
+</footer>
+
+</div>

@@ -1,0 +1,84 @@
+# =============================================================================
+#  HBL RAG Assistant
+#
+#  The data rules below matter more than the usual ones: the source documents
+#  are confidential bank policies, and everything derived from them (parsed
+#  text, page images, vector indexes) carries the same content. None of it may
+#  ever reach a remote. See docs/build-plan.html.
+# =============================================================================
+
+# --- Source documents and anything derived from them -------------------------
+data/
+storage/
+*.pdf
+*.PDF
+
+# Parsed output, rasterised pages, OCR intermediates
+parsed/
+page_images/
+*.ocr.json
+
+# Vector store and registry
+qdrant_storage/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# --- Model weights -----------------------------------------------------------
+# Large, re-downloadable, and on an air-gapped host they are transferred by
+# hand rather than through the repo.
+models/
+*.gguf
+*.safetensors
+*.onnx
+.cache/
+hf_cache/
+
+# --- Secrets -----------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Python ------------------------------------------------------------------
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# --- Node / frontend ---------------------------------------------------------
+node_modules/
+dist/
+dist-check/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Logs and scratch --------------------------------------------------------
+logs/
+*.log
+tmp/
+scratch/
+
+# --- OS and editors ----------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+*.swp
+*~
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json

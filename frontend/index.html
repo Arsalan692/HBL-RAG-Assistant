@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HBL RAG Assistant</title>
+    <meta name="description" content="Internal retrieval assistant for HBL policy and SOP documents." />
+    <meta name="robots" content="noindex, nofollow" />
+
+    <!-- Browser tabs. The .ico carries every size from 16 to 256 for Windows
+         and older browsers; the PNGs are what modern browsers actually pick. -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+
+    <!-- Home screen. These are the white-tiled versions, because iOS
+         composites a transparent icon onto black. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <meta name="theme-color" content="#009F8C" />
+    <meta name="apple-mobile-web-app-title" content="HBL Assistant" />
+
+    <style>
+      html, body { height: 100%; margin: 0; }
+      #root { height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,214 @@
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 15px;
+  /* HBL Canvas */
+  --hbl-canvas: #F7F8F7;
+  --hbl-surface: #FFFFFF;
+  --hbl-elevated: #FFFFFF;
+  /* HBL Brand */
+  --hbl-green: #009A49;
+  --hbl-green-hover: #00B356;
+  --hbl-green-deep: #00703A;
+  --hbl-green-ring: rgba(0, 154, 73, 0.4);
+  /* HBL Text */
+  --hbl-text-primary: #0D0F0E;
+  --hbl-text-secondary: #5C6360;
+  --hbl-text-tertiary: #8A918D;
+  /* HBL Border */
+  --hbl-border: rgba(0, 0, 0, 0.08);
+  /* Shadow */
+  --hbl-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+
+  /* Token contract */
+  --background: #F7F8F7;
+  --foreground: #0D0F0E;
+  --card: #FFFFFF;
+  --card-foreground: #0D0F0E;
+  --popover: #FFFFFF;
+  --popover-foreground: #0D0F0E;
+  --primary: #009A49;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F0F1F0;
+  --secondary-foreground: #0D0F0E;
+  --muted: #F0F1F0;
+  --muted-foreground: #5C6360;
+  --accent: #E8F5EE;
+  --accent-foreground: #00703A;
+  --destructive: #C0392B;
+  --destructive-foreground: #FFFFFF;
+  --border: rgba(0, 0, 0, 0.08);
+  --input: transparent;
+  --input-background: #F7F8F7;
+  --switch-background: #C8CCC9;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: rgba(0, 154, 73, 0.4);
+  --chart-1: #009A49;
+  --chart-2: #00703A;
+  --chart-3: #5C6360;
+  --chart-4: #00B356;
+  --chart-5: #8A918D;
+  --radius: 0.75rem;
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #0D0F0E;
+  --sidebar-primary: #009A49;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #E8F5EE;
+  --sidebar-accent-foreground: #00703A;
+  --sidebar-border: rgba(0, 0, 0, 0.08);
+  --sidebar-ring: rgba(0, 154, 73, 0.4);
+}
+
+.dark {
+  --hbl-canvas: #0B0D0C;
+  --hbl-surface: #131615;
+  --hbl-elevated: #1A1E1C;
+  --hbl-green: #22C55E;
+  --hbl-green-hover: #16A34A;
+  --hbl-green-deep: #15803D;
+  --hbl-green-ring: rgba(34, 197, 94, 0.4);
+  --hbl-text-primary: #F2F4F3;
+  --hbl-text-secondary: #A2AAA6;
+  --hbl-text-tertiary: #6E7671;
+  --hbl-border: rgba(255, 255, 255, 0.10);
+
+  --background: #0B0D0C;
+  --foreground: #F2F4F3;
+  --card: #131615;
+  --card-foreground: #F2F4F3;
+  --popover: #1A1E1C;
+  --popover-foreground: #F2F4F3;
+  --primary: #22C55E;
+  --primary-foreground: #0B0D0C;
+  --secondary: #1A1E1C;
+  --secondary-foreground: #F2F4F3;
+  --muted: #1A1E1C;
+  --muted-foreground: #A2AAA6;
+  --accent: #162B1E;
+  --accent-foreground: #22C55E;
+  --destructive: #E74C3C;
+  --destructive-foreground: #FFFFFF;
+  --border: rgba(255, 255, 255, 0.10);
+  --input: rgba(255, 255, 255, 0.06);
+  --input-background: #1A1E1C;
+  --switch-background: #3A4040;
+  --ring: rgba(34, 197, 94, 0.4);
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --chart-1: #22C55E;
+  --chart-2: #16A34A;
+  --chart-3: #A2AAA6;
+  --chart-4: #4ADE80;
+  --chart-5: #6E7671;
+  --sidebar: #131615;
+  --sidebar-foreground: #F2F4F3;
+  --sidebar-primary: #22C55E;
+  --sidebar-primary-foreground: #0B0D0C;
+  --sidebar-accent: #162B1E;
+  --sidebar-accent-foreground: #22C55E;
+  --sidebar-border: rgba(255, 255, 255, 0.10);
+  --sidebar-ring: rgba(34, 197, 94, 0.4);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /**
+  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
+  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
+  */
+
+  html {
+    font-size: var(--font-size);
+  }
+
+  h1 {
+    font-size: var(--text-2xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h2 {
+    font-size: var(--text-xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h3 {
+    font-size: var(--text-lg);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h4 {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  label {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  button {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  input {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-normal);
+    line-height: 1.5;
+  }
+}
