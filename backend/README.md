@@ -156,11 +156,29 @@ Scanned pages sit at 100–206 dpi, the poorest at 100. There are effectively no
 true hybrids — of 203 pages with a partial raster, 193 are the header logo at
 1–2% coverage.
 
+## The OCR engine is chosen
+
+`qwen2.5vl:7b` via Ollama, decided 2026-08-21 by running all three available
+vision models over five representative pages on the RTX 4060 Ti. Docling,
+MinerU and Surya were never needed — nothing had to be staged on the air-gapped
+machine.
+
+One page decided it. On an 8-row ruled table of country risk classifications,
+all three engines produced a well-formed markdown table and scored identically
+on characters and table count. Only `qwen2.5vl:7b` produced the *correct* one.
+`qwen2.5vl:3b` shifted a column so one `No` disappeared and deleted another
+cell's entire sentence; `glm-ocr` read the table well but looped on a sparse
+title page, repeating four lines 115 times.
+
+That is the case for a harness that reports no score: the 3B failure is
+invisible to every automatic metric and obvious to a person reading two columns
+side by side.
+
 ## Next
 
-The **OCR bench-off**. The five comparison pages are already chosen by
-`classify --pick-bench`; the engines are not. Bench `qwen2.5vl:7b` first — it is
-already on the workstation and needs nothing staged — and only stage Docling if
-it loses.
+**Extraction** — turning the routing decision into text. 265 digital pages take
+their embedded layer, 236 scanned pages go through the VLM, output is one
+markdown file per document plus per-page provenance. That file is the quality
+gate; everything downstream reads it rather than the PDF.
 
 The full plan is `docs/build-plan.html`; open it in a browser.

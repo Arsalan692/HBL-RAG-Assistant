@@ -101,7 +101,7 @@ Re-opening these wastes time; the reasoning is in `docs/build-plan.html`.
 | Framework | **No LangChain, no LlamaIndex.** Call libraries directly. LangChain's `BM25Retriever` is in-memory with no deletion, which is actively wrong for the add/delete requirement. |
 | Python | **3.13** on the dev laptop. (The plan argues for 3.12 because of PaddleOCR; the user chose 3.13 and accepted losing that one OCR candidate.) |
 | PDF access | PyMuPDF |
-| OCR | Undecided — bench-off of Docling / MinerU / Surya / a local VLM on five real pages. Pages are picked (see below); engines are not. Chosen on output, not benchmarks. |
+| OCR | **`qwen2.5vl:7b` via Ollama**, settled 2026-08-21 on five real pages. Docling / MinerU / Surya were never needed. See below. |
 | Embeddings | `BAAI/bge-m3` |
 | Reranker | `BAAI/bge-reranker-v2-m3` |
 | Keyword search | SQLite **FTS5** (BM25), in the same DB as the document registry, so deleting a document removes its vectors, keyword index and registry row in one transaction |
@@ -255,38 +255,54 @@ not tokens per second.
 - Prefill dominates: 8 chunks ≈ 3–4k tokens read before a word is written.
   `HBL_RETRIEVAL_RERANK_CANDIDATES` (60 → 30) and `RERANK_TOP_K` are the knobs.
 
-## The OCR bench pages — chosen, no longer an open question
+## The OCR bench-off — run, decided, done
 
-`app.cli classify --pick-bench` selects them by measurement, one per category,
-spread across five different documents. Re-run it if the corpus changes:
+`hbl bench` ran all three vision models over five representative pages on the
+RTX 4060 Ti (2026-08-21). Winner: **`qwen2.5vl:7b`**, already set as the
+default in `config.py`. Docling, MinerU and Surya were never needed, so nothing
+had to be staged on the air-gapped box.
 
-| Category | Document | Page | Why it was chosen |
-| --- | --- | --- | --- |
-| clean digital | `A-INST-2025-01- Encl. Global AML CFT CPF and KYC Policy (1).pdf` | 7 | 34 chars/in², no raster — the control |
-| full scan | `AFPAD - Frequently Asked Questions (FAQs) (1).pdf` | 1 | full-page raster, 200 dpi, no prior text |
-| mixed | `AFPAD 2025.pdf` | 3 | scan carrying a prior OCR layer |
-| dense table | `Financial Crime Country Risk Guidelines.pdf` | 10 | ruled and multi-column |
-| poor scan | `Compliance Assurance Program 2023.pdf` | 1 | 100 dpi, the worst in the corpus |
+The pages were picked by measurement (`classify --pick-bench`), one per
+category, across five documents. Re-run it if the corpus changes:
 
-`hbl bench` runs them. It renders each page **once** and hands the identical
-file to every engine, writes one markdown file per engine per page, and
-produces **no score and no winner** — a flattened table reads as fluent prose,
-and every automatic metric rates fluent prose highly. A person reads across the
-files and decides. Watch the dense table especially.
-
-**Three vision models are already pulled** — checked 2026-08-21, on the laptop
-and expected on the workstation too:
-
-| Model | Size | Note |
+| Category | Document | Page |
 | --- | --- | --- |
-| `qwen2.5vl:7b` | 6.0 GB | the assumed default |
-| `qwen2.5vl:3b` | 3.2 GB | bench it — if it reads these pages as well, the OCR pass halves and 3 GB of VRAM comes back |
-| `glm-ocr:latest` | 2.2 GB | 1.1B, purpose-built for OCR rather than general vision |
+| clean digital | `A-INST-2025-01- Encl. Global AML CFT CPF and KYC Policy (1).pdf` | 7 |
+| full scan | `AFPAD - Frequently Asked Questions (FAQs) (1).pdf` | 1 |
+| mixed | `AFPAD 2025.pdf` | 3 |
+| dense table | `Financial Crime Country Risk Guidelines.pdf` | 10 |
+| poor scan | `Compliance Assurance Program 2023.pdf` | 1 |
 
-So the first comparison costs no download at all:
-`hbl bench --engines vlm=qwen2.5vl:7b vlm=qwen2.5vl:3b vlm=glm-ocr:latest`.
-Only stage Docling if all three lose. Engine specs split on the first `=`, so
-Ollama's `name:tag` colons survive.
+**What decided it was one page** — the dense table, an 8-row ruled table of
+country risk classifications. All three produced a well-formed markdown table.
+Only one produced the *right* one:
+
+- **`qwen2.5vl:7b`** — all 8 rows correct, including the cell holding two
+  values (`Israel (Unacceptable)` / `India (Restricted)`). Also recovered the
+  Urdu in the letterhead. ~14s/page. **Chosen.**
+- **`qwen2.5vl:3b`** — corrupted cells silently. Shifted row 3 so the
+  Exclusions value `No` vanished, and deleted row 5's entire Exclusions
+  sentence, leaving `Unacceptable` in its place. Fluent, well-formed, wrong.
+- **`glm-ocr:latest`** — read the table correctly and fastest, but fell into a
+  repetition loop on a sparse title page, emitting the same four lines **115
+  times** until it hit the token ceiling. This corpus is full of sparse pages.
+
+This is why the harness reports no score and picks no winner: all three scored
+identically on characters and table count. The 3B failure is invisible to every
+automatic metric and obvious to a person reading two columns side by side.
+
+**Two defects in 7B are handled in `providers/ocr/vlm.py`**, not left to the
+model: it wraps output in a ```` ```markdown ```` fence (stripped by `_unfence`,
+which only removes a fence enclosing the *whole* response, since these documents
+quote real code blocks), and it will impose table structure on a title page (the
+prompt now says a heading block is not a table). `_degenerate_repeat` flags the
+glm-ocr-style loop as a warning if any engine ever does it again.
+
+The bench-off also settled a design question with evidence. On `AFPAD 2025` p.3
+the embedded prior OCR layer reads `HBL HAl-3:laBANK  1. Introduction
+Agenda 5.2.3 ...` — garbled letterhead, raw control bytes, **and scrambled
+reading order**. Re-reading the raster fixed all three. Keep
+`HBL_INGEST_TRUST_PRIOR_OCR=false`.
 
 ## Open questions
 

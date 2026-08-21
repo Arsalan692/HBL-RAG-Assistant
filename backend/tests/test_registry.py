@@ -29,12 +29,13 @@ def test_status_does_not_import_the_implementation(monkeypatch: pytest.MonkeyPat
     assert "app.providers.llm.ollama" not in sys.modules
 
 
-def test_llm_is_the_one_interface_ready_in_phase_00():
+def test_llm_and_ocr_are_ready_while_the_retrieval_models_are_not_yet_written():
     settings = Settings()
     assert registry.status(settings, "llm").state == "ready"
+    # Chosen by bench-off and backed by Ollama, so it needs nothing installed.
+    assert registry.status(settings, "ocr").state == "ready"
     assert registry.status(settings, "embedder").state == "declared"
     assert registry.status(settings, "reranker").state == "declared"
-    assert registry.status(settings, "ocr").state == "unchosen"
 
 
 def test_declared_providers_fail_to_load_with_their_phase_named(monkeypatch: pytest.MonkeyPatch):

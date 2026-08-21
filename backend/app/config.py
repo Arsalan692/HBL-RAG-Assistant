@@ -237,12 +237,17 @@ class OcrSettings(BaseSettings):
 
     model_config = _config("HBL_OCR_")
 
-    #: `unset` until real pages have been run through the candidates. The
-    #: registry knows the candidate names; nothing here presumes a winner.
-    provider: str = "unset"
+    #: Chosen 2026-08-21 by running the candidates over five real pages.
+    #: `qwen2.5vl:7b` was the only one that read a dense ruled table without
+    #: corrupting it: qwen2.5vl:3b silently deleted an Exclusions cell and
+    #: shifted another column, and glm-ocr fell into a repetition loop on a
+    #: sparse title page, emitting the same four lines 115 times. 7B also
+    #: recovered the Urdu in the letterhead, which neither of the others did.
+    #: ~14s per page on the RTX 4060 Ti.
+    provider: str = "vlm"
     #: Meaning depends on the engine: an Ollama tag for `vlm`, a checkpoint name
     #: for the others, empty where the engine has only one model.
-    model: str = ""
+    model: str = "qwen2.5vl:7b"
     #: Comma separated. Kept as a string because pydantic-settings expects JSON
     #: for a `list[str]` read from the environment, which is a poor thing to ask
     #: of a .env file.

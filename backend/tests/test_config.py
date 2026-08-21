@@ -96,9 +96,15 @@ def test_remote_endpoints_are_refused(url: str, monkeypatch: pytest.MonkeyPatch)
     ) or "not this machine" in str(excinfo.value)
 
 
-def test_ocr_starts_unchosen():
-    """Nothing may presume a winner before Phase 01 has run real pages through the candidates."""
-    assert OcrSettings().provider == "unset"
+def test_ocr_defaults_to_the_engine_the_bench_off_chose():
+    """Decided 2026-08-21 on five real pages, not on published benchmarks.
+
+    qwen2.5vl:7b was the only candidate that read a dense ruled table without
+    corrupting it. Changing this default means re-running `hbl bench`, not
+    picking a different name.
+    """
+    assert OcrSettings().provider == "vlm"
+    assert OcrSettings().model == "qwen2.5vl:7b"
     assert OcrSettings(languages="en, ur").language_list == ["en", "ur"]
 
 

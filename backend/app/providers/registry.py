@@ -78,7 +78,7 @@ _SPECS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         interface="ocr",
         name="unset",
-        summary="No engine chosen yet — decided by the Phase 01 bench-off.",
+        summary="Nothing chosen. Kept so a config with no OCR engine fails clearly.",
         phase="01",
     ),
     ProviderSpec(
@@ -105,7 +105,7 @@ _SPECS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         interface="ocr",
         name="vlm",
-        summary="qwen2.5vl:7b via Ollama. Slowest, best on poor scans. Already pulled — no download.",
+        summary="CHOSEN. qwen2.5vl:7b via Ollama. Only candidate that read a ruled table without corrupting it.",
         target="app.providers.ocr.vlm:VlmOCR",
         requires=(),
     ),

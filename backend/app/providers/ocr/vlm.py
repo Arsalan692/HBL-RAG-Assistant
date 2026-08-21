@@ -41,6 +41,9 @@ Rules:
 - Keep headings, numbered clauses and bullet markers exactly as printed, including
   their numbering (2.1.3 stays 2.1.3).
 - Where text is illegible, write [illegible] rather than guessing.
+- Only use a markdown table where the page actually shows a table with rows and
+  columns. A title page, a heading block or a list is not a table.
+- Do not wrap your output in a code fence. Output the markdown directly.
 - Do not add commentary, explanation, or a preamble. Output only the page content.
 """
 
@@ -114,7 +117,7 @@ class VlmOCR:
         if error := body.get("error"):
             raise ProviderUnavailable(f"{self.model} failed on page {page.page_number}: {error}")
 
-        markdown = body.get("message", {}).get("content", "").strip()
+        markdown = _unfence(body.get("message", {}).get("content", "").strip())
         warnings: list[str] = []
         if not markdown:
             warnings.append("empty output")
@@ -122,6 +125,8 @@ class VlmOCR:
             warnings.append("hit the token limit — output is truncated")
         if "[illegible]" in markdown:
             warnings.append(f"{markdown.count('[illegible]')} illegible region(s)")
+        if repeat := _degenerate_repeat(markdown):
+            warnings.append(f"looks like a repetition loop — one line occurs {repeat} times")
 
         log.info(
             "ocr.page",
@@ -165,6 +170,59 @@ class VlmOCR:
             + (", ".join(available) if available else "none")
             + f". Run: ollama pull {self.model}"
         )
+
+
+def _unfence(markdown: str) -> str:
+    """Strip a code fence wrapping the whole page.
+
+    Every model benched did this on at least one page — asked for markdown, they
+    return markdown *inside* ```markdown, because that is what markdown looks
+    like in their training data. Telling them not to in the prompt helps and
+    does not settle it, so it is also removed here.
+
+    Only an outer fence enclosing the entire response is removed. A fence around
+    part of the page is real content — some of these documents quote code and
+    system messages — and must survive.
+    """
+    if not markdown.startswith("```"):
+        return markdown
+
+    lines = markdown.splitlines()
+    if len(lines) < 2 or not lines[-1].strip().startswith("```"):
+        return markdown
+    # A fence enclosing everything has exactly two fence lines: first and last.
+    if sum(1 for line in lines if line.strip().startswith("```")) != 2:
+        return markdown
+    return "\n".join(lines[1:-1]).strip()
+
+
+def _degenerate_repeat(markdown: str, *, threshold: int = 8) -> int:
+    """How many times the most repeated line occurs, if that looks pathological.
+
+    A vision model handed a nearly-empty page can fall into a loop, re-emitting
+    the little it found until it exhausts its token budget. Benched on a title
+    page, one candidate produced the same four lines 115 times.
+
+    This is the failure that most needs flagging rather than fixing: the output
+    is fluent, every word of it is genuinely on the page, and nothing downstream
+    would question it — it would simply index the same sentence a hundred times
+    and skew retrieval toward it. Returns 0 when the text looks normal.
+    """
+    lines = [line.strip() for line in markdown.splitlines() if line.strip()]
+    if len(lines) < threshold * 2:
+        return 0
+
+    counts: dict[str, int] = {}
+    for line in lines:
+        # Table rules and fences legitimately repeat; content lines do not.
+        if len(line) < 12 or set(line) <= set("|-:` \t"):
+            continue
+        counts[line] = counts.get(line, 0) + 1
+    if not counts:
+        return 0
+
+    most = max(counts.values())
+    return most if most >= threshold else 0
 
 
 def _count_tables(markdown: str) -> int:
