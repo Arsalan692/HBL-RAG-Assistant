@@ -451,6 +451,55 @@ def cmd_extract(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+# --- verify ------------------------------------------------------------------
+
+
+def cmd_verify(args: argparse.Namespace, settings: Settings) -> int:
+    from app.ingest.verify import verify
+
+    report = verify(settings, compare_prior=not args.fast)
+
+    if args.json:
+        from dataclasses import asdict
+
+        print(json.dumps(asdict(report), indent=2, default=str))
+        return 1 if report.errors else 0
+
+    print(
+        f"\nChecked {report.pages} pages across {report.documents} documents "
+        f"({report.ocr_pages} through OCR, {report.characters:,} characters)\n"
+    )
+
+    if not report.findings:
+        print("  Nothing to flag.\n")
+        return 0
+
+    by_check: dict[str, list] = {}
+    for finding in report.findings:
+        by_check.setdefault(f"{finding.severity}:{finding.check}", []).append(finding)
+
+    for key in sorted(by_check, reverse=True):  # errors before warnings
+        severity, check = key.split(":", 1)
+        items = by_check[key]
+        label = "ERROR" if severity == "error" else "warn "
+        print(f"  {label} {check}  ({len(items)})")
+        for finding in items[: args.limit]:
+            print(f"        {finding.document[:44]:46} p.{finding.page:<4} {finding.detail[:78]}")
+        if len(items) > args.limit:
+            print(f"        ... and {len(items) - args.limit} more")
+        print()
+
+    if report.errors:
+        print(f"  {len(report.errors)} error(s). Re-extract the affected documents:")
+        names = sorted({f.document for f in report.errors})
+        for name in names[:5]:
+            print(f'      hbl extract --force "data/documents/{name}"')
+        return 1
+
+    print("  Warnings only — worth a look, not necessarily wrong.\n")
+    return 0
+
+
 # --- bench -------------------------------------------------------------------
 
 
@@ -604,6 +653,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     extract.add_argument("--json", action="store_true")
     extract.set_defaults(handler=cmd_extract)
+
+    verify = sub.add_parser(
+        "verify",
+        help="check extracted markdown for pages that succeeded but came out wrong",
+    )
+    verify.add_argument("--limit", type=int, default=6, help="findings shown per check")
+    verify.add_argument(
+        "--fast",
+        action="store_true",
+        help="skip comparing scans against their own prior OCR layer (needs the PDFs)",
+    )
+    verify.add_argument("--json", action="store_true")
+    verify.set_defaults(handler=cmd_verify)
 
     bench = sub.add_parser(
         "bench",

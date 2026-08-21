@@ -47,6 +47,9 @@ python -m app.cli bench --page "Donations Policy 2024.pdf:9" --dpi 400
 python -m app.cli extract             # the real pass: markdown per document
 python -m app.cli extract --no-ocr    # digital pages only, no GPU needed
 python -m app.cli extract --force     # ignore the page cache and redo
+
+python -m app.cli verify              # audit the extraction; exits 1 on real problems
+python -m app.cli verify --fast       # skip the prior-OCR comparison
 ```
 
 `pip install -e .` also puts an `hbl` script on PATH, so `hbl health` works from
@@ -86,6 +89,7 @@ app/
     bench.py           picks representative pages for the OCR comparison
     benchmark.py       runs the engines over them and writes output to compare
     extract.py         reads every page into one markdown file per document
+    verify.py          audits the result for pages that succeeded but came out wrong
   providers/ocr/
     vlm.py             the chosen engine: a vision model served by Ollama
     docling.py         adapter kept for the record; never needed
@@ -195,6 +199,26 @@ That is 56 of 265 digital pages, about thirteen extra minutes of GPU across the
 corpus, and it is the difference between a correct table and a plausible wrong
 one. The detector is used only as a signal that structure exists, never for its
 reconstruction.
+
+### Why extraction needs a separate audit
+
+Extraction reports its own failures honestly: a page that raised is recorded as
+an error and appears in the markdown as a visible marker. `verify` is for the
+other kind — pages that **succeeded and are wrong anyway**. Every check exists
+because the corpus produced it:
+
+- A title page came back as `![](https://i.imgur.com/...)`. The model invented a
+  URL instead of reading, and dropped the document's own title. 36 characters,
+  no error, no warning — invisible to everything else.
+- A page routed to OCR *because it holds a table* can come back without one.
+  The router knows the table was there and the output knows it is gone; nothing
+  saw both until this pass.
+- A scan carrying its own prior OCR layer gives two independent readings of the
+  same page. Corpus median agreement is 96%, which is cheap corroboration; the
+  tail below 55% points at the pages worth looking at.
+
+Real URLs are deliberately not flagged — these policies cite OFAC, OFSI, SECP
+and the EU sanctions map, and that is content.
 
 ## Next
 

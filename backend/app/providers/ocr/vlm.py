@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 from typing import Any, Sequence
 from urllib.error import HTTPError, URLError
@@ -117,8 +118,15 @@ class VlmOCR:
         if error := body.get("error"):
             raise ProviderUnavailable(f"{self.model} failed on page {page.page_number}: {error}")
 
-        markdown = _unfence(body.get("message", {}).get("content", "").strip())
+        raw = _unfence(body.get("message", {}).get("content", "").strip())
+        markdown = _strip_images(raw)
         warnings: list[str] = []
+        if raw != markdown and not markdown:
+            # The model returned an image placeholder *instead of* reading the
+            # page. Seen once on a title page, where it invented an imgur URL
+            # and dropped the document's own title — the single most valuable
+            # line in the file for retrieval.
+            warnings.append("returned only an image placeholder, no text")
         if not markdown:
             warnings.append("empty output")
         if body.get("done_reason") == "length":
@@ -196,6 +204,26 @@ def _unfence(markdown: str) -> str:
     return "\n".join(lines[1:-1]).strip()
 
 
+#: Markdown image syntax. Not link syntax — the difference is the leading `!`,
+#: and it matters: these policies genuinely cite SECP, OFAC, OFSI and the EU
+#: sanctions map by URL, and those are content that must survive.
+_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+
+
+def _strip_images(markdown: str) -> str:
+    """Remove embedded images from a transcription.
+
+    A page transcription can never legitimately contain one: the engine is
+    asked for the text on the page, and it has no way to host an image even if
+    the page holds a figure. What it can do — observed once on the Insider
+    Trading title page — is emit `![](https://i.imgur.com/...)` in place of
+    reading, inventing a plausible URL and discarding the document's title.
+
+    Plain links are deliberately left alone.
+    """
+    return _IMAGE.sub("", markdown).strip()
+
+
 def _degenerate_repeat(markdown: str, *, threshold: int = 8) -> int:
     """How many times the most repeated line occurs, if that looks pathological.
 
@@ -226,15 +254,27 @@ def _degenerate_repeat(markdown: str, *, threshold: int = 8) -> int:
 
 
 def _count_tables(markdown: str) -> int:
-    """Markdown tables, counted by their header separator (`|---|---|`).
+    """Blocks of pipe-delimited rows.
 
-    Only a bench signal — an engine that finds no tables on a page of tables has
-    flattened them into prose, which is the single most damaging OCR failure for
-    this corpus because the result still reads as fact.
+    Counted as runs of adjacent `|`-delimited lines rather than by the header
+    separator `|---|---|`, because plenty of real tables here have no header
+    row: the abbreviations glossary in the AML policy runs straight into
+    `| PEPCO | Pakistan Electric Power Company |`. Counting separators reported
+    that page as having no table at all, which is exactly the alarm this signal
+    exists to raise — so it must not cry wolf.
+
+    An engine that finds no table on a page of tables has flattened them into
+    prose, the single most damaging OCR failure for this corpus, because the
+    result still reads as fact once retrieved and cited.
     """
     count = 0
+    run = 0
     for line in markdown.splitlines():
         stripped = line.strip()
-        if stripped.startswith("|") and set(stripped) <= set("|-: \t") and "-" in stripped:
-            count += 1
+        if stripped.startswith("|") and stripped.count("|") >= 2:
+            run += 1
+            if run == 2:  # two adjacent rows is the smallest believable table
+                count += 1
+        else:
+            run = 0
     return count
