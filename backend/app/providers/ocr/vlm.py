@@ -48,6 +48,23 @@ Rules:
 - Do not add commentary, explanation, or a preamble. Output only the page content.
 """
 
+#: Used only after the main prompt produced nothing. Observed on the Insider
+#: Trading title page: a logo, a centred title, and a lot of white space. Asked
+#: to "transcribe this page", the model decides the page is a picture and
+#: returns an image placeholder instead of the six words actually printed on it.
+#: This prompt removes the framing that invites that reading — no mention of
+#: tables or structure, just "what words are on it".
+SPARSE_PROMPT = """List every word of text visible on this page, in the order it appears.
+
+The page may be mostly empty — a cover page, a divider, a form. That is expected.
+Transcribe the few words that are there anyway, including any title, heading,
+department name, date or page number.
+
+Output the words as plain text. Do not describe the page, do not mention images
+or logos, and do not return a placeholder. If there is genuinely no text at all,
+output nothing.
+"""
+
 
 class VlmOCR:
     """The `OCR` protocol, backed by a vision model served by Ollama."""
@@ -84,19 +101,11 @@ class VlmOCR:
                 "Is `ollama serve` running on this machine?"
             ) from exc
 
-    # --- OCR protocol --------------------------------------------------------
-
-    def recognise(self, page: PageRef) -> OcrResult:
-        if page.image_path is None or not page.image_path.exists():
-            raise ProviderUnavailable(
-                f"{self.name} reads images, but no rendered page was supplied for "
-                f"{page.pdf_path.name} p.{page.page_number}. Render it first."
-            )
-
-        encoded = base64.b64encode(page.image_path.read_bytes()).decode("ascii")
+    def _read(self, encoded_image: str, prompt: str, page_number: int) -> dict[str, Any]:
+        """One transcription request. Returns Ollama's parsed response body."""
         payload = {
             "model": self.model,
-            "messages": [{"role": "user", "content": PROMPT, "images": [encoded]}],
+            "messages": [{"role": "user", "content": prompt, "images": [encoded_image]}],
             "stream": False,
             "options": {
                 # Transcription, not composition. Any creativity here is an error.
@@ -109,24 +118,51 @@ class VlmOCR:
             },
             "keep_alive": "30m",
         }
-
-        started = time.perf_counter()
         with self._post("/api/chat", payload) as response:
             body = json.loads(response.read().decode("utf-8"))
-        duration = time.perf_counter() - started
-
         if error := body.get("error"):
-            raise ProviderUnavailable(f"{self.model} failed on page {page.page_number}: {error}")
+            raise ProviderUnavailable(f"{self.model} failed on page {page_number}: {error}")
+        return body
 
+    # --- OCR protocol --------------------------------------------------------
+
+    def recognise(self, page: PageRef) -> OcrResult:
+        if page.image_path is None or not page.image_path.exists():
+            raise ProviderUnavailable(
+                f"{self.name} reads images, but no rendered page was supplied for "
+                f"{page.pdf_path.name} p.{page.page_number}. Render it first."
+            )
+
+        encoded = base64.b64encode(page.image_path.read_bytes()).decode("ascii")
+
+        started = time.perf_counter()
+        body = self._read(encoded, PROMPT, page.page_number)
         raw = _unfence(body.get("message", {}).get("content", "").strip())
         markdown = _strip_images(raw)
+
         warnings: list[str] = []
-        if raw != markdown and not markdown:
-            # The model returned an image placeholder *instead of* reading the
-            # page. Seen once on a title page, where it invented an imgur URL
-            # and dropped the document's own title — the single most valuable
-            # line in the file for retrieval.
-            warnings.append("returned only an image placeholder, no text")
+        placeholder = bool(raw) and not markdown
+
+        if not markdown:
+            # Nothing came back, or nothing but an image placeholder. Ask again
+            # in different words before accepting that: a sparse cover page is
+            # not an error, and one unread title page costs the document its
+            # own name in every citation. One retry, never a loop.
+            retry = self._read(encoded, SPARSE_PROMPT, page.page_number)
+            retried = _strip_images(_unfence(retry.get("message", {}).get("content", "").strip()))
+            if retried:
+                markdown = retried
+                body = retry
+                warnings.append(
+                    "first attempt returned "
+                    + ("an image placeholder" if placeholder else "nothing")
+                    + "; recovered on retry"
+                )
+            elif placeholder:
+                warnings.append("returned only an image placeholder, no text")
+
+        duration = time.perf_counter() - started
+
         if not markdown:
             warnings.append("empty output")
         if body.get("done_reason") == "length":

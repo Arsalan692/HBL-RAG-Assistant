@@ -6,7 +6,12 @@ because of specific things the benched models actually did on real pages.
 
 from __future__ import annotations
 
-from app.providers.ocr.vlm import _count_tables, _degenerate_repeat, _unfence
+from app.providers.ocr.vlm import (
+    _count_tables,
+    _degenerate_repeat,
+    _strip_images,
+    _unfence,
+)
 
 TABLE = "| S. No | Factor |\n|---|---|\n| 1 | OFAC Comprehensive Country Sanctions |"
 
@@ -81,3 +86,24 @@ def test_prose_reports_no_tables() -> None:
     """The signal that matters: an engine reporting zero tables on a page of
     tables has flattened them into prose, which still reads as fact."""
     assert _count_tables("The Bank shall apply enhanced due diligence.") == 0
+
+
+# --- image placeholders and the sparse-page retry -----------------------------
+
+
+def test_an_image_placeholder_is_stripped() -> None:
+    """A transcription can never legitimately contain an embedded image. On the
+    Insider Trading title page the model emitted one instead of reading, and
+    discarded the document's own title."""
+    assert _strip_images("![](https://i.imgur.com/3Q5z5ZG.png)") == ""
+
+
+def test_real_urls_survive_stripping() -> None:
+    """These policies cite OFAC, OFSI, SECP and the EU sanctions map."""
+    body = "Refer to https://sanctionsmap.eu/#/main for the current list."
+    assert _strip_images(body) == body
+
+
+def test_an_image_among_text_is_removed_without_taking_the_text() -> None:
+    assert _strip_images("Title\n\n![fig](x.png)\n\nBody.").startswith("Title")
+    assert "Body." in _strip_images("Title\n\n![fig](x.png)\n\nBody.")

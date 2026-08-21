@@ -276,3 +276,30 @@ def test_the_sidecar_records_why_each_page_was_routed_as_it_was(settings: Settin
     assert payload["sha256"]
     assert len(payload["records"]) == 2
     assert all(r["reason"] for r in payload["records"])
+
+
+def test_a_page_that_yielded_nothing_is_retried_next_run(settings: Settings) -> None:
+    """It did fail, it simply did not raise. Caching that makes it permanent —
+    the Insider Trading title page would have stayed unread forever."""
+
+    class _EmptyThenWorking(_FakeOCR):
+        def __init__(self) -> None:
+            super().__init__()
+            self.empty = True
+
+        def recognise(self, page: PageRef) -> OcrResult:
+            if self.empty:
+                self.empty = False
+                self.calls.append(page)
+                return OcrResult(markdown="", engine="fake", page_number=page.page_number)
+            return super().recognise(page)
+
+    pdf = _scanned_pdf(settings.paths.documents_dir / "Scan.pdf")  # type: ignore[operator]
+    ocr = _EmptyThenWorking()
+
+    first = extract_document(pdf, settings, ocr)
+    assert first.records[0].characters == 0
+
+    second = extract_document(pdf, settings, ocr)
+    assert second.records[0].characters > 0
+    assert len(ocr.calls) == 2

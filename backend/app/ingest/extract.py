@@ -348,6 +348,11 @@ def _load_cache(sidecar: Path, digest: str) -> dict[int, PageRecord]:
             # outage permanent. Deferred pages are retried because the whole
             # point of deferring is to do them on the machine that can.
             continue
+        if entry.get("strategy") != "skip" and not entry.get("characters"):
+            # A page that was not blank and yielded nothing did fail — it simply
+            # did not raise. Caching that outcome makes it permanent, and the
+            # next run would never revisit it however much the engine improved.
+            continue
         entry.setdefault("warnings", [])
         out[entry["page"]] = PageRecord(**entry)
     return out

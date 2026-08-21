@@ -568,10 +568,13 @@ def cmd_verify(args: argparse.Namespace, settings: Settings) -> int:
         print()
 
     if report.errors:
-        print(f"  {len(report.errors)} error(s). Re-extract the affected documents:")
+        # Not --force: failed and empty pages are never cached, so a plain
+        # re-run redoes exactly those and leaves the rest of the document alone.
+        # On an 18-page scan that is one page instead of eighteen.
+        print(f"  {len(report.errors)} error(s). Re-run extraction for these documents:")
         names = sorted({f.document for f in report.errors})
         for name in names[:5]:
-            print(f'      hbl extract --force "data/documents/{name}"')
+            print(f'      hbl extract "data/documents/{name}"')
         return 1
 
     print("  Warnings only — worth a look, not necessarily wrong.\n")
