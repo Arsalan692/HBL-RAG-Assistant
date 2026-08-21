@@ -363,6 +363,94 @@ def cmd_classify(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+# --- extract -----------------------------------------------------------------
+
+
+def cmd_extract(args: argparse.Namespace, settings: Settings) -> int:
+    from app.ingest.extract import DocumentRecord, PageRecord, extract_corpus
+
+    paths = _corpus(settings, args.paths)
+
+    ocr = None
+    if not args.no_ocr:
+        try:
+            ocr = registry.load_ocr(settings)
+        except HblError as exc:
+            raise HblError(
+                f"{exc}\n\nRun with --no-ocr to extract only the digital pages, "
+                "or fix the OCR engine first (`hbl health --probe`)."
+            ) from exc
+
+    print(f"\nExtracting {len(paths)} document(s) to {_relative(settings.paths.parsed_dir)}")  # type: ignore[arg-type]
+    print(f"OCR engine: {settings.ocr.provider}/{settings.ocr.model}" if ocr else "OCR: disabled")
+    print("Pages are cached as they succeed — stopping and re-running resumes.\n")
+
+    state = {"pages": 0, "ocr_pages": 0, "seconds": 0.0, "failed": 0, "deferred": 0}
+
+    def on_page(record: PageRecord, total: int) -> None:
+        state["pages"] += 1
+        state["seconds"] += record.seconds
+        if record.strategy in ("ocr", "both"):
+            state["ocr_pages"] += 1
+        if record.error:
+            state["failed"] += 1
+        if record.deferred:
+            state["deferred"] += 1
+        # One line per page to stderr: an hour-long run needs to look alive, and
+        # stdout must stay clean for --json.
+        print(
+            f"  p.{record.page:>4}/{total:<4} {record.kind:<8} {record.strategy:<10} "
+            f"{record.seconds:>6.1f}s {record.characters:>6} chars"
+            + (f"  ERROR {record.error[:60]}" if record.error else ""),
+            file=sys.stderr,
+            flush=True,
+        )
+
+    def on_document(record: DocumentRecord) -> None:
+        if record.duplicate_of:
+            print(f"  {record.document[:60]}  duplicate of {record.duplicate_of[:40]} — skipped")
+        else:
+            print(
+                f"  {record.document[:60]:62} {record.pages:>4} pages  "
+                f"{record.characters:>7} chars"
+                + (f"  {len(record.deferred)} awaiting OCR" if record.deferred else "")
+                + (f"  {len(record.failed)} FAILED" if record.failed else "")
+            )
+
+    documents = extract_corpus(
+        paths, settings, ocr, force=args.force, on_page=on_page, on_document=on_document
+    )
+
+    if args.json:
+        from dataclasses import asdict
+
+        print(json.dumps([asdict(d) for d in documents], indent=2, default=str))
+        return 1 if any(d.failed for d in documents) else 0
+
+    duplicates = [d for d in documents if d.duplicate_of]
+    failed = [r for d in documents for r in d.failed]
+
+    print(f"\n  {state['pages']} pages, {state['ocr_pages']} through OCR, "
+          f"{state['seconds'] / 60:.1f} minutes of work")
+    if duplicates:
+        print(f"  {len(duplicates)} duplicate document(s) skipped by content hash")
+    if state["deferred"]:
+        print(
+            f"  {state['deferred']} page(s) still need OCR — re-run without --no-ocr\n"
+            "  on the GPU machine. Nothing about them was cached, so that run\n"
+            "  picks them up and leaves the rest alone."
+        )
+    if failed:
+        print(f"  {len(failed)} page(s) FAILED — they appear as markers in the markdown")
+        for record in failed[:5]:
+            print(f"      p.{record.page}: {record.error[:90]}")
+        return 1
+
+    print(f"\n  Read {_relative(settings.paths.parsed_dir)} before trusting any of it.")  # type: ignore[arg-type]
+    print("  That markdown is what everything downstream sees — not the PDFs.\n")
+    return 0
+
+
 # --- bench -------------------------------------------------------------------
 
 
@@ -500,6 +588,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     classify.add_argument("--json", action="store_true")
     classify.set_defaults(handler=cmd_classify)
+
+    extract = sub.add_parser(
+        "extract",
+        help="read every page into one markdown file per document (the quality gate)",
+    )
+    extract.add_argument("paths", nargs="*", help="PDFs (default: everything in documents/)")
+    extract.add_argument(
+        "--force", action="store_true", help="re-extract pages already cached"
+    )
+    extract.add_argument(
+        "--no-ocr",
+        action="store_true",
+        help="digital pages only — useful on a machine with no GPU",
+    )
+    extract.add_argument("--json", action="store_true")
+    extract.set_defaults(handler=cmd_extract)
 
     bench = sub.add_parser(
         "bench",

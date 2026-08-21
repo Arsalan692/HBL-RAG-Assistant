@@ -1,8 +1,9 @@
 # Backend
 
-The offline half of the assistant. Phase 00 is done: configuration, structured
-logging, a headless CLI, and the four provider contracts every later phase codes
-against. No retrieval, no ingestion, no API yet — those are Phases 01–06.
+The offline half of the assistant. Phases 00 and 01 are done: configuration,
+structured logging, a headless CLI, the four provider contracts, per-page
+routing, the OCR bench-off, and extraction to markdown. No chunking, index,
+retrieval or API yet — those are Phases 02–06.
 
 ## Install
 
@@ -42,6 +43,10 @@ python -m app.cli classify --explain "data/documents/Some Policy.pdf"   # one fi
 python -m app.cli bench               # every available OCR engine over the chosen pages
 python -m app.cli bench --engines vlm=qwen2.5vl:3b vlm=glm-ocr:latest
 python -m app.cli bench --page "Donations Policy 2024.pdf:9" --dpi 400
+
+python -m app.cli extract             # the real pass: markdown per document
+python -m app.cli extract --no-ocr    # digital pages only, no GPU needed
+python -m app.cli extract --force     # ignore the page cache and redo
 ```
 
 `pip install -e .` also puts an `hbl` script on PATH, so `hbl health` works from
@@ -80,6 +85,10 @@ app/
     render.py          rasterises a page to PNG, once, for every engine alike
     bench.py           picks representative pages for the OCR comparison
     benchmark.py       runs the engines over them and writes output to compare
+    extract.py         reads every page into one markdown file per document
+  providers/ocr/
+    vlm.py             the chosen engine: a vision model served by Ollama
+    docling.py         adapter kept for the record; never needed
 tests/                 config, registry, routing, rendering, harness — no models,
                        no corpus, no engines needed
 ```
@@ -174,11 +183,23 @@ That is the case for a harness that reports no score: the 3B failure is
 invisible to every automatic metric and obvious to a person reading two columns
 side by side.
 
+### Why a digital page can still need OCR
+
+`PageVerdict.kind` says what a page *is*; `PageVerdict.strategy` says what to do
+with it. They came apart on evidence. PyMuPDF finds the ruled table on
+`Financial Crime Country Risk Guidelines` p.10 and then reconstructs it as
+33x8 instead of 9x4, duplicating cells across columns — while the VLM read the
+same table exactly. So a digital page holding a table is routed to OCR.
+
+That is 56 of 265 digital pages, about thirteen extra minutes of GPU across the
+corpus, and it is the difference between a correct table and a plausible wrong
+one. The detector is used only as a signal that structure exists, never for its
+reconstruction.
+
 ## Next
 
-**Extraction** — turning the routing decision into text. 265 digital pages take
-their embedded layer, 236 scanned pages go through the VLM, output is one
-markdown file per document plus per-page provenance. That file is the quality
-gate; everything downstream reads it rather than the PDF.
+**Chunking and metadata** (Phase 02) — splitting the extracted markdown on
+structure rather than character count, and attaching `policy_family` and `year`
+so the 2023 and 2025 vintages can be told apart.
 
 The full plan is `docs/build-plan.html`; open it in a browser.

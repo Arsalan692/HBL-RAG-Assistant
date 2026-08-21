@@ -37,6 +37,12 @@ PageKind = Literal["digital", "scanned", "hybrid", "empty"]
 
 KINDS: tuple[PageKind, ...] = ("digital", "scanned", "hybrid", "empty")
 
+#: *What to do* with a page, as opposed to what the page is. The two came apart
+#: once the OCR bench-off produced evidence: a digital page holding a ruled
+#: table is unquestionably digital, and must still be read by the vision model,
+#: because PyMuPDF's table reconstruction destroys it and the VLM does not.
+Strategy = Literal["text-layer", "ocr", "both", "skip"]
+
 
 @dataclass(frozen=True, slots=True)
 class PageVerdict:
@@ -54,14 +60,16 @@ class PageVerdict:
     #: the extraction phase can diff its own output against it and flag pages
     #: where the two disagree, which is a cheap accuracy check for free.
     has_prior_text: bool = False
+    #: How to extract. Usually implied by `kind`, but not always: see `Strategy`.
+    strategy: Strategy = "text-layer"
 
     @property
     def needs_ocr(self) -> bool:
-        return self.kind in ("scanned", "hybrid")
+        return self.strategy in ("ocr", "both")
 
     @property
     def needs_text_layer(self) -> bool:
-        return self.kind in ("digital", "hybrid")
+        return self.strategy in ("text-layer", "both")
 
 
 def classify_page(signals: PageSignals, settings: IngestSettings) -> PageVerdict:
@@ -83,6 +91,7 @@ def classify_page(signals: PageSignals, settings: IngestSettings) -> PageVerdict
             "empty",
             f"no content ({signals.char_count} characters, no raster)",
             signals,
+            strategy="skip",
         )
 
     # 2. One image covers the page. Then the image *is* the page, and whatever
@@ -101,6 +110,7 @@ def classify_page(signals: PageSignals, settings: IngestSettings) -> PageVerdict
                 f"({signals.raster_dpi:.0f} dpi image)",
                 signals,
                 has_prior_text=True,
+                strategy="text-layer",
             )
         note = " (a prior text layer is present and will be diffed against)" if has_text else ""
         return PageVerdict(
@@ -109,6 +119,7 @@ def classify_page(signals: PageSignals, settings: IngestSettings) -> PageVerdict
             f"full-page image at {signals.raster_dpi:.0f} dpi{note}",
             signals,
             has_prior_text=has_text,
+            strategy="ocr",
         )
 
     # 3. A text layer we do not believe. The dangerous case: character count
@@ -120,6 +131,7 @@ def classify_page(signals: PageSignals, settings: IngestSettings) -> PageVerdict
             f"text layer present but unreliable - {signals.quality.reason}",
             signals,
             has_prior_text=True,
+            strategy="ocr",
         )
 
     # 4. Thin text over a partial raster: the picture holds most of the content.
@@ -129,6 +141,7 @@ def classify_page(signals: PageSignals, settings: IngestSettings) -> PageVerdict
             "scanned",
             f"{signals.raster_coverage:.0%} raster, only {signals.char_density:.0f} chars/in2 of text",
             signals,
+            strategy="ocr",
         )
 
     # 5. Little text and no raster either. Not blank (test 1 passed), so this is
@@ -140,6 +153,7 @@ def classify_page(signals: PageSignals, settings: IngestSettings) -> PageVerdict
             "scanned",
             f"sparse text ({signals.char_density:.0f} chars/in2) with no raster to explain it",
             signals,
+            strategy="ocr",
         )
 
     # 6. Plenty of trustworthy text *and* a substantial raster that does not
@@ -150,14 +164,34 @@ def classify_page(signals: PageSignals, settings: IngestSettings) -> PageVerdict
             "hybrid",
             f"good text layer plus {signals.raster_coverage:.0%} raster carrying separate content",
             signals,
+            strategy="both",
         )
 
-    # 7. Plenty of trustworthy text, nothing else going on.
+    # 7. A clean digital page that holds a ruled table. Still digital — but the
+    #    text layer is the wrong way to read it. PyMuPDF's table detector finds
+    #    the table and then reconstructs it wrongly: on this corpus it rendered
+    #    a 9x4 table as 33x8 with cells duplicated across columns, while the
+    #    vision model read the same table exactly. A corrupted table is the
+    #    worst output this pipeline can produce, because it still reads as fact
+    #    once retrieved. 56 of 265 digital pages land here; the cost is about
+    #    thirteen minutes of GPU across the corpus.
+    if signals.table_count:
+        return PageVerdict(
+            signals.page_number,
+            "digital",
+            f"clean text layer, but holds {signals.table_count} table(s) "
+            "the text-layer path would corrupt",
+            signals,
+            strategy="ocr",
+        )
+
+    # 8. Plenty of trustworthy text, nothing else going on.
     return PageVerdict(
         signals.page_number,
         "digital",
         f"clean text layer ({signals.char_density:.0f} chars/in2)",
         signals,
+        strategy="text-layer",
     )
 
 

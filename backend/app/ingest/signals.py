@@ -14,7 +14,9 @@ fact — a page sent down the wrong branch just produces quietly wrong text.
 from __future__ import annotations
 
 import math
+import sys
 import unicodedata
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 
 import pymupdf
@@ -88,6 +90,11 @@ class PageSignals:
     #: no raster. Not used in routing — it is how the bench-off finds a
     #: genuinely poor scan without anyone paging through the corpus by eye.
     raster_dpi: float
+
+    #: Tables PyMuPDF can find in the text layer. Used to route *away* from the
+    #: text layer, not toward it — see `router`. Always 0 on a scan, which has
+    #: no text layer for the detector to work on.
+    table_count: int
 
     quality: TextQuality
 
@@ -228,8 +235,31 @@ def measure_page(page: pymupdf.Page) -> PageSignals:
         text_coverage=_grid_coverage(text_rects, rect),
         has_full_page_raster=has_full_page_raster,
         raster_dpi=round(raster_dpi, 1),
+        table_count=_count_tables(page),
         quality=assess_text(text),
     )
+
+
+def _count_tables(page: pymupdf.Page) -> int:
+    """How many tables PyMuPDF's detector finds in the text layer.
+
+    Only the count is taken, never the reconstruction. Measured against the real
+    corpus, `find_tables().to_markdown()` rendered a 9x4 ruled table as 33x8
+    with cells duplicated across columns — while the VLM read the same table
+    perfectly. So the detector is used as a *warning* that a page holds
+    structure the text-layer path would destroy, and such pages are sent to OCR.
+
+    stdout is redirected because `find_tables()` `print()`s a suggestion to
+    install pymupdf_layout on every call — a plain print, so `set_messages()`
+    does not reach it. Harmless in a terminal and fatal for `--json`, where it
+    lands on stdout between us and whatever is parsing the output. Sent to
+    stderr rather than discarded, so the advice is still there if wanted.
+    """
+    try:
+        with redirect_stdout(sys.stderr):
+            return len(page.find_tables().tables)
+    except Exception:  # detector is heuristic and occasionally throws
+        return 0
 
 
 def table_likeness(page: pymupdf.Page) -> float:
