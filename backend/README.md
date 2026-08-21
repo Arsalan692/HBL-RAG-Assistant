@@ -50,6 +50,8 @@ python -m app.cli extract --force     # ignore the page cache and redo
 
 python -m app.cli verify              # audit the extraction; exits 1 on real problems
 python -m app.cli verify --fast       # skip the prior-OCR comparison
+
+python -m app.cli chunk               # split parsed markdown into retrievable chunks
 ```
 
 `pip install -e .` also puts an `hbl` script on PATH, so `hbl health` works from
@@ -90,6 +92,10 @@ app/
     benchmark.py       runs the engines over them and writes output to compare
     extract.py         reads every page into one markdown file per document
     verify.py          audits the result for pages that succeeded but came out wrong
+    metadata.py        which policy a document is, and which vintage
+    structure.py       markdown back into sections, minus furniture and contents pages
+    chunk.py           sections into retrievable units with breadcrumbs
+    pipeline.py        runs the three over the corpus, writes chunks.jsonl
   providers/ocr/
     vlm.py             the chosen engine: a vision model served by Ollama
     docling.py         adapter kept for the record; never needed
@@ -220,10 +226,35 @@ because the corpus produced it:
 Real URLs are deliberately not flagged — these policies cite OFAC, OFSI, SECP
 and the EU sanctions map, and that is content.
 
+### Chunking, and the two things the corpus made hard
+
+Splits follow section boundaries, not a character count: ~700 tokens is a
+target, and a heading always ends a chunk. Tables are atomic — half a table of
+country risk classifications still reads as complete, it simply omits the rows
+that would have contradicted it.
+
+**Vintage.** `Global AML CFT CPF and KYC Policy - 2023.pdf` and
+`A-INST-2025-01- Encl. Global AML CFT CPF and KYC Policy.pdf` are two vintages
+of one policy, near-identical in wording and different in substance. Every
+chunk carries `policy_family` and `year` so retrieval can prefer the newer and
+surface a genuine disagreement rather than returning whichever embedded closer.
+The year comes from the filename, because the cover page often states none.
+
+**Run-on headings.** The vision model routinely transcribes a heading and the
+sentence after it onto one line:
+
+    1.3 Risk Categories There are four risk-based categories that apply...
+
+Nothing in that line marks where the title stops — but the contents page says
+`1.3 Risk Categories 4`, so `contents_index()` reads the true titles off it and
+splits the body back out. Without it the breadcrumb on every clause in the
+section carries a sentence of prose, and that breadcrumb is the citation.
+
 ## Next
 
-**Chunking and metadata** (Phase 02) — splitting the extracted markdown on
-structure rather than character count, and attaching `policy_family` and `year`
-so the 2023 and 2025 vintages can be told apart.
+**Index, registry and true deletion** (Phase 03) — Qdrant with payload indexes,
+a SQLite registry with FTS5 for keyword search in the same database, so
+deleting a document removes its vectors, keyword entries and registry row in
+one transaction.
 
 The full plan is `docs/build-plan.html`; open it in a browser.

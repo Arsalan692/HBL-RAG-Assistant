@@ -316,6 +316,37 @@ class IngestSettings(BaseSettings):
     render_dpi: int = 300
 
 
+class ChunkSettings(BaseSettings):
+    """How extracted markdown is split for embedding.
+
+    Splits follow section boundaries rather than a character count, because
+    these documents are hierarchies (`4.`, `4.1`, `4.1.2`) and a clause cut in
+    half is a clause that retrieves and then fails to answer.
+    """
+
+    model_config = _config("HBL_CHUNK_")
+
+    #: Target size. bge-m3 accepts 8192 tokens, so this is not a model limit —
+    #: it is a retrieval decision. Bigger chunks bury the sentence that matched
+    #: among paragraphs that did not, and cost prefill on every answer.
+    target_tokens: int = 700
+    #: Carried from the end of the previous chunk so a clause split across two
+    #: chunks is answerable from either. Taken at a sentence boundary.
+    overlap_tokens: int = 120
+    #: Below this, a chunk is merged into its neighbour instead of standing
+    #: alone. A 30-token fragment matches on a stray word and answers nothing.
+    min_tokens: int = 60
+    #: A table larger than this is still never split — it becomes one oversized
+    #: chunk. Half a table of risk classifications is worse than none, because
+    #: it still reads as complete.
+    max_table_tokens: int = 2000
+
+    #: Prepend the section breadcrumb to each chunk's text. Costs a few tokens
+    #: and makes every chunk self-describing, so one retrieved in isolation
+    #: still says which policy and clause it came from.
+    prefix_breadcrumb: bool = True
+
+
 class RetrievalSettings(BaseSettings):
     """The hybrid retrieval pipeline's shape.
 
@@ -379,6 +410,7 @@ class Settings(BaseModel):
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
     ocr: OcrSettings = Field(default_factory=OcrSettings)
     ingest: IngestSettings = Field(default_factory=IngestSettings)
+    chunk: ChunkSettings = Field(default_factory=ChunkSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
 

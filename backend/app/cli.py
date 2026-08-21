@@ -451,6 +451,84 @@ def cmd_extract(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+# --- chunk -------------------------------------------------------------------
+
+
+def cmd_chunk(args: argparse.Namespace, settings: Settings) -> int:
+    from app.ingest.pipeline import chunk_corpus, write_chunks
+
+    paths = [Path(p) for p in args.paths] if args.paths else None
+    documents = chunk_corpus(settings, paths)
+    out_dir = Path(args.out) if args.out else (settings.paths.parsed_dir / "chunks")
+    jsonl = write_chunks(documents, out_dir)
+
+    if args.json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "doc_id": d.identity.doc_id,
+                        "title": d.identity.title,
+                        "policy_family": d.identity.policy_family,
+                        "year": d.identity.year,
+                        "chunks": len(d.chunks),
+                        "tables": d.stats.tables,
+                        "oversized": d.stats.oversized,
+                    }
+                    for d in documents
+                ],
+                indent=2,
+            )
+        )
+        return 0
+
+    rows = [["document", "year", "chunks", "tables", "sections", "merged"]]
+    for d in documents:
+        rows.append(
+            [
+                d.identity.title[:44],
+                str(d.identity.year or "-"),
+                str(len(d.chunks)),
+                str(d.stats.tables),
+                str(len(d.stats.sections)),
+                str(d.stats.merged_fragments),
+            ]
+        )
+    total = sum(len(d.chunks) for d in documents)
+    tokens = sum(c.tokens for d in documents for c in d.chunks)
+    rows.append(["", "", "", "", "", ""])
+    rows.append(["TOTAL", "", str(total), str(sum(d.stats.tables for d in documents)), "", ""])
+
+    print("\nChunking\n")
+    print(_table(rows))
+    print(f"\n  {total} chunks, {tokens:,} estimated tokens, "
+          f"mean {tokens // max(total, 1)} per chunk")
+    print(f"  written to {_relative(jsonl)}")
+
+    # Group the identities already derived from the *source filenames*. Passing
+    # titles back through `identify` would re-derive from a name whose year has
+    # already been stripped out, and report every vintage as undated.
+    families: dict[str, list] = {}
+    for document in documents:
+        families.setdefault(document.identity.policy_family, []).append(document.identity)
+
+    rival = {k: v for k, v in families.items() if len(v) > 1}
+    if rival:
+        print(f"\n  {len(rival)} policy family/families exist in more than one vintage:")
+        for members in rival.values():
+            members.sort(key=lambda m: (m.year or 0), reverse=True)
+            years = ", ".join(str(m.year or "undated") for m in members)
+            print(f"      {members[0].title[:52]:54} {years}")
+        print("      Retrieval must prefer the newest and surface genuine conflicts.")
+
+    oversized = sum(d.stats.oversized for d in documents)
+    if oversized:
+        print(f"\n  {oversized} chunk(s) exceed the target size. Tables are never split, "
+              "so this is expected where a table is large.")
+    print()
+    return 0
+
+
 # --- verify ------------------------------------------------------------------
 
 
@@ -653,6 +731,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     extract.add_argument("--json", action="store_true")
     extract.set_defaults(handler=cmd_extract)
+
+    chunk = sub.add_parser(
+        "chunk",
+        help="split parsed markdown into retrievable chunks with section metadata",
+    )
+    chunk.add_argument("paths", nargs="*", help="parsed .md files (default: all of them)")
+    chunk.add_argument("--out", help="output directory (default: data/parsed/chunks)")
+    chunk.add_argument("--json", action="store_true")
+    chunk.set_defaults(handler=cmd_chunk)
 
     verify = sub.add_parser(
         "verify",
