@@ -224,7 +224,14 @@ because the corpus produced it:
   tail below 55% points at the pages worth looking at.
 
 Real URLs are deliberately not flagged — these policies cite OFAC, OFSI, SECP
-and the EU sanctions map, and that is content.
+and the EU sanctions map, and that is content. Nor is a warning that names a
+*recovery*: "first attempt returned an image placeholder; recovered on retry"
+describes a page that came out fine, and matching `placeholder` as a substring
+reported it as a failure.
+
+Ingestion currently exits clean: 444 pages, no errors, twelve warnings — five
+`[illegible]` markers, seven pages where our reading disagrees with the scan's
+own prior OCR, all seven checked and ours the better one.
 
 ### Chunking, and the two things the corpus made hard
 

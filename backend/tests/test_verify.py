@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from app.config import Settings
-from app.ingest.verify import verify
+from app.ingest.verify import verify, warning_severity
 
 
 @pytest.fixture
@@ -168,3 +168,39 @@ def test_encoding_damage_is_reported(settings: Settings) -> None:
     _sidecar(settings, "Scan.pdf", {"text": "Enhanced due diligence � applies."})
     report = verify(settings, compare_prior=False)
     assert "encoding-damage" in _checks(report)
+
+
+# --- severity of engine warnings ---------------------------------------------
+
+
+def test_a_recovery_is_not_an_error(settings: Settings) -> None:
+    """The warning naming a recovery also names the failure it recovered from.
+    Substring matching alone reported a page that came out fine as an error."""
+    _sidecar(
+        settings,
+        "Insider.pdf",
+        {"warnings": ["first attempt returned an image placeholder; recovered on retry"]},
+    )
+    report = verify(settings, compare_prior=False)
+    assert not report.errors
+    assert report.warnings
+
+
+def test_an_unrecovered_placeholder_is_still_an_error(settings: Settings) -> None:
+    _sidecar(settings, "Insider.pdf", {"warnings": ["returned only an image placeholder, no text"]})
+    assert verify(settings, compare_prior=False).errors
+
+
+@pytest.mark.parametrize(
+    ("warning", "severity"),
+    [
+        ("returned only an image placeholder, no text", "error"),
+        ("looks like a repetition loop — one line occurs 115 times", "error"),
+        ("empty output", "error"),
+        ("3 illegible region(s)", "warning"),
+        ("first attempt returned nothing; recovered on retry", "warning"),
+        ("hit the token limit — output is truncated", "warning"),
+    ],
+)
+def test_warning_severities(warning: str, severity: str) -> None:
+    assert warning_severity(warning) == severity

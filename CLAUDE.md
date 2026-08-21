@@ -84,7 +84,7 @@ npx tsc --noEmit         # type-check; there is no lint or test runner yet
 ./venv/Scripts/python.exe -m app.cli extract --no-ocr      # digital pages only, laptop-safe
 ./venv/Scripts/python.exe -m app.cli verify                # audit the extraction
 ./venv/Scripts/python.exe -m app.cli chunk                 # 901 chunks with breadcrumbs + vintage
-./venv/Scripts/python.exe -m pytest backend        # 131 tests, no models, corpus or engines needed
+./venv/Scripts/python.exe -m pytest backend        # 143 tests, no models, corpus or engines needed
 
 python brand/make_icons.py                          # regenerate app icons
 ```

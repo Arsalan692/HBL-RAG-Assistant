@@ -43,6 +43,27 @@ _WORDS = re.compile(r"[^a-z0-9 ]+")
 #: The corpus median is 0.96, so this is far into the tail.
 AGREEMENT_FLOOR = 0.55
 
+#: Engine warnings that mean the page was not read. Matched as substrings
+#: because the engine formats counts into them.
+_FATAL_WARNINGS = (
+    "returned only an image placeholder",
+    "repetition loop",
+    "empty output",
+)
+
+#: ...unless the message also says this. A warning describing a *recovery*
+#: names the failure it recovered from, so substring matching alone reported
+#: "first attempt returned an image placeholder; recovered on retry" — a page
+#: that came out fine — as an error.
+_RECOVERED = "recovered"
+
+
+def warning_severity(warning: str) -> str:
+    lowered = warning.lower()
+    if _RECOVERED in lowered:
+        return "warning"
+    return "error" if any(marker in lowered for marker in _FATAL_WARNINGS) else "warning"
+
 
 @dataclass(frozen=True, slots=True)
 class Finding:
@@ -142,8 +163,7 @@ def verify(settings: Settings, *, compare_prior: bool = True) -> Report:
                 add("warning", "encoding-damage", f"{text.count(chr(0xFFFD))} replacement character(s)")
 
             for warning in record.get("warnings", []):
-                severity = "error" if ("repetition" in warning or "placeholder" in warning) else "warning"
-                add(severity, "engine-warning", warning)
+                add(warning_severity(warning), "engine-warning", warning)
 
             # The check nothing else can make: the router said this page holds a
             # table, so the output must contain one. If it does not, the table
