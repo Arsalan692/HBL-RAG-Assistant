@@ -1,0 +1,15 @@
+# Core backend dependencies.
+#
+# Deliberately tiny: this file installs cleanly on the CPU-only development
+# laptop, so `python -m app.cli health` runs there. Everything that needs a GPU
+# lives in requirements-gpu.txt and is installed on the workstation only.
+#
+# pyproject.toml reads this file, so `pip install -e backend` gets the same set.
+
+pydantic>=2.9,<3
+pydantic-settings>=2.6,<3
+
+# PDF access. Ships as a self-contained wheel with no system libraries behind
+# it, so it belongs in the core set rather than the GPU one — page routing and
+# text extraction both run fine on the laptop.
+pymupdf>=1.24

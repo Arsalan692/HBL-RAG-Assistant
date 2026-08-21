@@ -6,11 +6,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 An internal retrieval assistant (RAG chatbot) that answers questions about HBL's
 policy and SOP documents — AML/CFT/KYC, sanctions, whistleblowing, data privacy,
-insider trading, BCP and similar. Roughly 22 PDFs, ~1,300 pages, a mix of digital
-and scanned, table-heavy.
+insider trading, BCP and similar.
 
-**The frontend is built. The backend does not exist yet.** A new session picking
-this up is almost certainly here to build the backend.
+**The corpus is present**, in `data/documents/` (gitignored). Measured, not
+estimated: **20 files, 19 unique, 519 pages**. `app.cli classify` routes them
+265 digital / 236 scanned / 18 blank — so **47% of indexable pages need OCR**,
+and per-page routing is doing real work: `Whistleblowing Policy & Program-2024`
+alone splits 11 digital / 7 scanned, while `AFPAD 2025` is 26 scanned pages and
+`Global AML CFT CPF and KYC Policy - 2023` is 49 digital ones.
+
+**The frontend is built. Phase 00 and the Phase 01 router are done.**
+`backend/` holds configuration, logging, a headless CLI, the four provider
+protocols, and the per-page classifier. Nothing extracts, embeds, retrieves or
+answers yet. A session picking this up is here to run the **OCR bench-off** —
+the five comparison pages are already chosen, see below. Read
+`backend/README.md` first.
 
 The full ten-phase plan lives in `docs/build-plan.html` — open it in a browser
 rather than reading the raw HTML. It carries the reasoning behind everything
@@ -23,15 +33,31 @@ These are settled. Do not propose alternatives.
 1. **Fully offline. No cloud APIs, ever.** The documents are confidential bank
    policies. No Claude API, no OpenAI, no Voyage, no Cohere, no hosted endpoint —
    not even for a one-off ingestion job. Every model runs locally.
-2. **Two machines.** Code is written on a CPU-only Windows laptop and executed on
-   an office workstation with an **RTX 4060 Ti, 16 GB VRAM**. Therefore: no
-   absolute paths, no machine-specific assumptions, every model name in `.env`,
-   and a headless CLI for every heavy operation so ingestion can run on the GPU
-   box without a browser. Transfer is `git pull` + install, never manual copying.
-   Do not try to benchmark or run models on the dev laptop.
+2. **Two machines.** Code is written on a CPU-only Windows laptop (8 cores) and
+   the heavy work runs on an office workstation with an **RTX 4060 Ti, 16 GB
+   VRAM**. Therefore: no absolute paths, no machine-specific assumptions, every
+   model name in `.env`, and a headless CLI for every heavy operation so
+   ingestion can run on the GPU box without a browser. Transfer is `git pull` +
+   install, never manual copying.
+
+   The laptop *can* run the pipeline — page routing, extraction, embedding the
+   corpus (~30–60 min once), and OCR of a handful of pages. What it cannot do is
+   bulk OCR or interactive-speed generation. Build and validate here; run the
+   real ingest there.
 3. **Never commit documents or anything derived from them.** Parsed markdown,
    rasterised page images and the vector index all contain the same confidential
    content as the PDFs. `.gitignore` already covers this; keep it that way.
+4. **No Google Colab, and no remote GPU.** Asked and settled on 2026-08-21: the
+   corpus does not go to a third party *for compute*. No uploading pages to a
+   hosted OCR service, no rented GPU, no cloud inference in the pipeline.
+
+   **Reading documents in a Claude Code session is explicitly allowed** — the
+   user granted this on 2026-08-21 so OCR output can be judged against the
+   actual page, which is the whole point of the bench-off and cannot be done
+   from aggregate numbers. Open the PDFs and the rendered PNGs when the task
+   needs it. Still do not paste bulk document text around gratuitously: read
+   what the question requires, quote sparingly in replies, and prefer
+   aggregates when they answer the question just as well.
 
 ## Commands
 
@@ -44,10 +70,24 @@ npm run dev              # http://localhost:5173
 npm run build
 npx tsc --noEmit         # type-check; there is no lint or test runner yet
 
-# Python (venv is Python 3.13.5 at ./venv, currently only pip + pillow)
-./venv/Scripts/python.exe -m pip install <pkg>     # Windows
+# Backend (venv is Python 3.13.5 at ./venv; install once with the line below)
+./venv/Scripts/python.exe -m pip install -e "backend[dev]"
+./venv/Scripts/python.exe -m app.cli health        # config + provider per interface
+./venv/Scripts/python.exe -m app.cli health --probe  # ...and contact Ollama
+./venv/Scripts/python.exe -m app.cli providers     # what's registered, what's installed
+./venv/Scripts/python.exe -m app.cli paths --create
+./venv/Scripts/python.exe -m app.cli classify              # route every page, corpus-wide
+./venv/Scripts/python.exe -m app.cli classify --explain    # per-page numbers and reasoning
+./venv/Scripts/python.exe -m app.cli classify --pick-bench # choose the OCR comparison pages
+./venv/Scripts/python.exe -m app.cli bench                 # run the OCR engines over those pages
+./venv/Scripts/python.exe -m app.cli bench --engines vlm=qwen2.5vl:3b
+./venv/Scripts/python.exe -m pytest backend        # 54 tests, no models, corpus or engines needed
+
 python brand/make_icons.py                          # regenerate app icons
 ```
+
+The CLI works from any directory once installed, and also as `hbl health`.
+Results go to stdout, logs to stderr, so `--json` output stays pipeable.
 
 The frontend has one route beyond the app itself: `/#/states`, an interaction-states
 and motion reference used for design handoff. It is not part of the product.
@@ -61,7 +101,7 @@ Re-opening these wastes time; the reasoning is in `docs/build-plan.html`.
 | Framework | **No LangChain, no LlamaIndex.** Call libraries directly. LangChain's `BM25Retriever` is in-memory with no deletion, which is actively wrong for the add/delete requirement. |
 | Python | **3.13** on the dev laptop. (The plan argues for 3.12 because of PaddleOCR; the user chose 3.13 and accepted losing that one OCR candidate.) |
 | PDF access | PyMuPDF |
-| OCR | Undecided — Phase 01 runs a bench-off of Docling / MinerU / Surya / a local VLM on five real pages. Chosen on output, not benchmarks. |
+| OCR | Undecided — bench-off of Docling / MinerU / Surya / a local VLM on five real pages. Pages are picked (see below); engines are not. Chosen on output, not benchmarks. |
 | Embeddings | `BAAI/bge-m3` |
 | Reranker | `BAAI/bge-reranker-v2-m3` |
 | Keyword search | SQLite **FTS5** (BM25), in the same DB as the document registry, so deleting a document removes its vectors, keyword index and registry row in one transaction |
@@ -74,26 +114,59 @@ Re-opening these wastes time; the reasoning is in `docs/build-plan.html`.
 cache, bge-m3 ~2.3 GB, reranker ~2.3 GB ≈ 15.6 GB of 16 GB. If it OOMs: quantise
 the two small models to 8-bit first; only drop to an 8B LLM as a last resort.
 
-## Backend architecture (to build)
+## Backend architecture
 
-Start at Phase 00 in the plan: repo skeleton, `pydantic-settings` config driven by
-`.env`, structured logging, a CLI entry point, and four provider protocols —
-`LLM`, `Embedder`, `Reranker`, `OCR` — that every later phase codes against. Local
-model choice changes often, so those interfaces matter even though there is no
-cloud fallback.
+Phase 00 exists. `backend/README.md` explains it; the parts worth knowing before
+writing anything:
+
+- **`app/config.py` is the only module that reads the environment.** Anything
+  else takes `Settings` as an argument. Relative paths anchor to the repository
+  root, not the cwd. `HBL_LLM_BASE_URL` is validated to be loopback or LAN — a
+  public host raises `ConfigError`, so a typo cannot leak the corpus.
+- **The registry describes providers rather than holding them.** It stores an
+  import target plus required module names and checks them with
+  `importlib.util.find_spec`, so `health` runs on the laptop where torch will
+  never be installed. A spec with a `phase` is a declaration; loading it fails
+  naming the phase instead of raising ImportError for a module nobody wrote.
+  There's a test asserting status never imports an implementation — keep it.
+- **Only the LLM provider is real** (`providers/llm/ollama.py`, stdlib urllib,
+  NDJSON streaming). Embedder lands in Phase 03, reranker in 04, OCR in 01.
 
 Three subsystems over shared storage:
 
 - **Ingestion** — offline, slow, runs headless on the GPU box. Per-*page* routing
-  (never per-file): a page is classified DIGITAL / SCANNED / HYBRID from character
-  yield, raster coverage and a garble score. HYBRID extracts the text layer *and*
-  OCRs the raster regions, then merges with fuzzy overlap detection. Output is one
-  human-readable markdown file per document plus per-page provenance — that file
-  is the quality gate.
+  (never per-file) is **built**, in `app/ingest/`. HYBRID extracts the text layer
+  *and* OCRs the raster regions, then merges with fuzzy overlap detection. Output
+  is one human-readable markdown file per document plus per-page provenance —
+  that file is the quality gate. Extraction itself is not written yet.
 - **Retrieval** — dense top-30 + BM25 top-30 → RRF fusion → cross-encoder rerank →
   top-8. Hybrid is not optional: the corpus is full of exact identifiers
   (`A-INST-2025-01`, CDD, EDD, STR, PEP, thresholds) that dense search alone misses.
 - **Generation** — strict grounding, citations, refusal when retrieval is thin.
+
+### What the router learned from the real corpus
+
+Three things that were not obvious and are easy to reintroduce:
+
+1. **A full-page raster beats any text layer.** ~220 pages are scans that arrived
+   with someone else's OCR already embedded. That text often measures perfectly
+   healthy — no control characters, normal word shapes — while being wrong; one
+   page renders the HBL logo as `MBL HA.aH3GANK`. So the rule is: if one image
+   covers ≥60% of the page, the image *is* the page and gets re-read. The prior
+   text is kept as `PageVerdict.has_prior_text` for diffing, never as the source.
+   `HBL_INGEST_TRUST_PRIOR_OCR` can flip this; it should stay off.
+2. **Ignore rasters too small to hold content.** Several documents are Word
+   exports that place a **2×2-pixel** image behind every line of text as a
+   highlight fill. Stretched to line width they read as ~57% raster coverage and
+   sent every clean digital page to OCR. `signals._MIN_RASTER_PIXELS` filters them.
+3. **Character density is ~30/in², not hundreds.** A4 is 96.7 in² and a full page
+   of body prose is ~2,800 characters. The first threshold set was 55 and
+   classified all 519 pages as scanned. Distribution is bimodal — p25 1.2,
+   median 24.5, p75 33.0 — so the cutoff belongs in the gap, at 12.
+
+There are effectively **no HYBRID pages** in this corpus: of 203 pages with a
+partial raster, 193 are the header logo at 1–2% coverage. The branch stays for
+uploaded documents, but do not expect it to fire on what is there today.
 
 **Corpus hazard to handle explicitly:** several policies exist in more than one
 vintage (AML/KYC and Sanctions each appear as 2023 and 2025), plus byte-identical
@@ -148,10 +221,75 @@ Only relevant if touching the UI.
   there, not inline.
 - Motion: one easing curve, `cubic-bezier(0.32, 0.72, 0, 1)`, durations 180–260ms.
 
+## GPU workstation — air-gapped
+
+**It has no internet at all.** Everything is downloaded on the laptop, moved to a
+shared folder, then copied onto the workstation by hand.
+`docs/download-manifest.html` is the full transfer kit — open it in a browser.
+What this means when writing code:
+
+- **Never reference anything by an online name at run time.** Model names in
+  `.env` are local folder paths (`storage/models/bge-m3`), not repo ids. A
+  `from_pretrained("BAAI/...")` that "just works" on the laptop hangs there.
+- `HBL_HF_OFFLINE=true` stays on permanently. It is not a download-window
+  setting; it is what stops a library trying.
+- `docling`, MinerU and `surya` fetch their own weights **at first run**. Each
+  needs its model repo staged by hand and a cache env var pointed at it — real
+  per-engine work, redone for every dead end.
+- **`qwen2.5vl:7b` is already there** (which also confirms Ollama works). It is
+  the `vlm` OCR candidate and needs nothing staged, so bench it first; only stage
+  Docling if it isn't good enough.
+
+## Answering speed is a requirement
+
+The user asked for it to feel like a normal chatbot. The 4060 Ti has 288 GB/s of
+bandwidth, so this is a real constraint, and the lever is *time to first token*,
+not tokens per second.
+
+- **`HBL_LLM_THINK=false` is the default and must stay off.** Qwen3 emits a
+  `<think>` block before answering — hundreds of unseen tokens ahead of the first
+  visible word. Largest single win, costs nothing.
+- **Both `qwen3:8b` and `qwen3:14b` are being carried across** to be benched
+  against each other. ~35–45 tok/s vs ~20–25. Expect 8B to win; the task is
+  grounded summarising, not open-ended reasoning. Don't assume 14B.
+- Prefill dominates: 8 chunks ≈ 3–4k tokens read before a word is written.
+  `HBL_RETRIEVAL_RERANK_CANDIDATES` (60 → 30) and `RERANK_TOP_K` are the knobs.
+
+## The OCR bench pages — chosen, no longer an open question
+
+`app.cli classify --pick-bench` selects them by measurement, one per category,
+spread across five different documents. Re-run it if the corpus changes:
+
+| Category | Document | Page | Why it was chosen |
+| --- | --- | --- | --- |
+| clean digital | `A-INST-2025-01- Encl. Global AML CFT CPF and KYC Policy (1).pdf` | 7 | 34 chars/in², no raster — the control |
+| full scan | `AFPAD - Frequently Asked Questions (FAQs) (1).pdf` | 1 | full-page raster, 200 dpi, no prior text |
+| mixed | `AFPAD 2025.pdf` | 3 | scan carrying a prior OCR layer |
+| dense table | `Financial Crime Country Risk Guidelines.pdf` | 10 | ruled and multi-column |
+| poor scan | `Compliance Assurance Program 2023.pdf` | 1 | 100 dpi, the worst in the corpus |
+
+`hbl bench` runs them. It renders each page **once** and hands the identical
+file to every engine, writes one markdown file per engine per page, and
+produces **no score and no winner** — a flattened table reads as fluent prose,
+and every automatic metric rates fluent prose highly. A person reads across the
+files and decides. Watch the dense table especially.
+
+**Three vision models are already pulled** — checked 2026-08-21, on the laptop
+and expected on the workstation too:
+
+| Model | Size | Note |
+| --- | --- | --- |
+| `qwen2.5vl:7b` | 6.0 GB | the assumed default |
+| `qwen2.5vl:3b` | 3.2 GB | bench it — if it reads these pages as well, the OCR pass halves and 3 GB of VRAM comes back |
+| `glm-ocr:latest` | 2.2 GB | 1.1B, purpose-built for OCR rather than general vision |
+
+So the first comparison costs no download at all:
+`hbl bench --engines vlm=qwen2.5vl:7b vlm=qwen2.5vl:3b vlm=glm-ocr:latest`.
+Only stage Docling if all three lose. Engine specs split on the first `=`, so
+Ollama's `name:tag` colons survive.
+
 ## Open questions
 
-- **Can the GPU workstation reach the internet** to download model weights, or is
-  it air-gapped and needs them carried across? Blocking before Phase 01.
 - Language of the documents is assumed English throughout.
 - Authentication and chat history persistence are deferred — the user explicitly
   deprioritised sign-in until the core works.
@@ -159,10 +297,16 @@ Only relevant if touching the UI.
 ## Repository layout
 
 ```
+backend/      config, logging, CLI, provider protocols, per-page router. See its README.
+              app/ingest/     signals (measure) → router (decide) → render → bench (pick) → benchmark (run)
+              app/providers/ocr/  vlm.py (Ollama vision, real) + docling.py (adapter, needs staging)
 frontend/     the app — built and working, mock data
 brand/        logo source + make_icons.py (regenerates all app icons)
 docs/         build-plan.html — the ten-phase plan and all reasoning
 venv/         Python 3.13 virtualenv
+data/documents/   the 20 source PDFs — gitignored, never commit
+data/parsed/, data/page_images/   derived, equally confidential, equally ignored
+storage/      registry DB, Qdrant index, model cache — gitignored
 Design System for HBL RAG Chatbot/   Figma export, kept as visual reference only;
                                      not imported by the app
 ```

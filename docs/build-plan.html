@@ -448,7 +448,7 @@
 <div class="wrap">
 
 <header class="masthead">
-  <p class="eyebrow">Build Plan &nbsp;/&nbsp; Rev. B &nbsp;/&nbsp; Interface built · backend next</p>
+  <p class="eyebrow">Build Plan &nbsp;/&nbsp; Rev. C &nbsp;/&nbsp; Interface &amp; foundation built · parsing next</p>
   <h1>Retrieval assistant for<br>HBL policy documents</h1>
   <p class="standfirst">A grounded question-answering system over ~22 internal policy PDFs — mixed digital and scanned, table-heavy, with documents added and removed over time. Ten phases, each with a gate you sign off before the next begins.</p>
 </header>
@@ -464,11 +464,12 @@
 <div class="statusbar">
   <h2>Where this stands</h2>
   <p>The interface was built first, out of sequence, against mock data — so the shape of the answer was settled before anything had to produce one. That turned out to be useful: the frontend now <em>defines</em> the contract the backend has to satisfy, rather than the other way round.</p>
-  <p><strong>Everything server-side is still unwritten.</strong> There is no <code>backend/</code> directory yet. The next step is Phase 00.</p>
+  <p><strong>Phase 00 is now in.</strong> <code>backend/</code> holds the configuration, structured logging, the headless CLI and the four provider contracts, with the Ollama generation provider implemented and the other three registered but deliberately empty. <code>python -m app.cli health</code> reports the resolved config and the provider behind each interface. Nothing ingests, retrieves or answers yet — that starts at Phase 01.</p>
   <div class="chips">
     <span class="chip done">07 Interface — chat surface built</span>
-    <span class="chip next">00 Foundation — next</span>
-    <span class="chip">01–06 Backend — not started</span>
+    <span class="chip done">00 Foundation — config, CLI, contracts</span>
+    <span class="chip next">01 Parsing gate — next</span>
+    <span class="chip">02–06 Backend — not started</span>
     <span class="chip">08–09 Eval &amp; hardening — not started</span>
   </div>
 </div>
@@ -696,13 +697,15 @@
   <p class="lede">Sequential, because each phase consumes the previous one's output. Phases marked <em>Gate</em> stop and wait for you — those are the points where a bad result is cheap to fix and expensive to discover later.</p>
   <p class="lede">One exception has already happened: <strong>Phase 07 was pulled forward</strong> and the interface built against mock data before any of the backend existed. That was worth doing — it settled the shape of an answer, and the citation format in particular, while changing it was still free. The rest of the sequence stands.</p>
 
-  <div class="phase">
-    <div class="phase-rail"><span class="phase-code">00</span><span class="phase-tag">Foundation</span></div>
+  <div class="phase is-built">
+    <div class="phase-rail"><span class="phase-code">00</span><span class="phase-tag built">Built</span></div>
     <div class="phase-body">
       <h3>Skeleton, config and provider contracts</h3>
       <p>A <code>backend/</code> package on the existing Python 3.13 environment; <code>pydantic-settings</code> configuration driven entirely by <code>.env</code>; structured logging; and the four provider protocols — <code>LLM</code>, <code>Embedder</code>, <code>Reranker</code>, <code>OCR</code> — that every later phase codes against. A <code>cli</code> entry point that all heavy operations hang off, so ingestion can run headless on the GPU box.</p>
       <p>The interfaces earn their place even without a cloud fallback: the OCR engine is chosen by bench-off in Phase 01, and the generation model may be re-picked if the VRAM budget bites. Both need to be a config change.</p>
-      <div class="done"><b>Done when</b><code>python -m app.cli health</code> prints the resolved config and the active provider for each of the four interfaces.</div>
+      <p><b>Built.</b> Two decisions in the implementation are worth recording. First, the registry stores a <em>description</em> of each provider — an import target and the modules it needs — and checks availability with <code>importlib.util.find_spec</code> rather than importing. That is what lets <code>health</code> run on the laptop, where torch is not installed and never will be; a test asserts that reporting status imports nothing. Second, <code>HBL_LLM_BASE_URL</code> is validated to resolve to loopback or the local network, so a mistyped <code>.env</code> cannot point the corpus at a public endpoint. The offline rule is enforced at the one place a URL enters the system, not left to discipline.</p>
+      <p>Only the Ollama provider is real. The embedder, reranker and the four OCR candidates are registered with the phase that implements them, so asking to load one fails with a sentence naming that phase instead of an ImportError for a module nobody wrote.</p>
+      <div class="done"><b>Done</b><code>python -m app.cli health</code> prints the resolved config and the active provider for each of the four interfaces. 24 tests, none needing a model.</div>
     </div>
   </div>
 
@@ -882,8 +885,8 @@
 
   <dl>
     <div class="ask">
-      <dt>Network posture of the GPU host</dt>
-      <dd>Whether the GPU machine can reach the internet to download model weights, or is air-gapped and needs them carried across. Blocking at Phase 01.</dd>
+      <dt>Network posture of the GPU host <b>— answered</b></dt>
+      <dd>Air-gapped. Everything is downloaded on the laptop, moved through a shared folder, and unpacked on the workstation by hand. Two consequences run through the whole build: nothing may be referenced by an online name at run time — model names become local folder paths — and every trip across is expensive enough that the full list has to be known before the first one. That list is <a href="https://claude.ai/code/artifact/6ca6fde8-8e98-4bd0-9081-8c3aba2fc131">the transfer kit</a>. It also reorders the OCR bench-off: <code>qwen2.5vl:7b</code> is already on the machine and needs nothing staged, while the other three engines each fetch their own weights at first run and must be pre-staged by hand.</dd>
     </div>
     <div class="ask">
       <dt>Language of the documents</dt>
@@ -902,16 +905,17 @@
 
 <section>
   <h2><span class="num">08</span>Immediate next step</h2>
-  <p><strong>Phase 00.</strong> Create the <code>backend/</code> package on the existing Python 3.13 environment, lay out the repository, and put the configuration and the four provider interfaces in place. Small and fast, and it makes every later phase a matter of filling in implementations rather than restructuring.</p>
-  <p>The alternative worth considering: invert and prototype the Phase 01 page router on a handful of real pages before building any structure around it. That answers the project's biggest unknown — whether the scans OCR cleanly — sooner, at the cost of some rework. Given that parsing carries roughly a third of the project's difficulty, spending a day on it early is defensible.</p>
-  <p>Either way, nothing further is needed from you to begin. The open questions in Section 07 become blocking at Phase 01, not now.</p>
+  <p><strong>Phase 01 — the parsing gate.</strong> Phase 00 is in, and it was the cheap part. What comes next is the phase that decides whether this project works: probing every page, routing it DIGITAL / SCANNED / HYBRID, and running the OCR candidates against real pages to pick a winner on output rather than on published benchmarks.</p>
+  <p>The network question is answered — the workstation is air-gapped — so the remaining input is <strong>five representative pages</strong>: one clean digital, one full scan, one mixed, one dense table, one poor-quality scan. Not the documents, just which pages. You run them on the workstation; I read the output.</p>
+  <p>The transfer should be prepared now rather than when Phase 01 needs it: it is manual, and the thing that hurts is making a second trip for something forgotten. <a href="https://claude.ai/code/artifact/6ca6fde8-8e98-4bd0-9081-8c3aba2fc131">The transfer kit</a> lists everything to stage in one go, including the answering speed the corpus needs. Meanwhile the bench-off is not blocked on it: <code>qwen2.5vl:7b</code> is already on the machine, so one of the four candidates can be run today.</p>
+  <p>Everything else in Section 07 stays non-blocking until Phase 05.</p>
 </section>
 
 <footer>
-  <span>Rev. B</span>
+  <span>Rev. C</span>
   <span>Interface built</span>
-  <span>Backend not started</span>
-  <span>Next: Phase 00</span>
+  <span>Phase 00 built</span>
+  <span>Next: Phase 01</span>
 </footer>
 
 </div>

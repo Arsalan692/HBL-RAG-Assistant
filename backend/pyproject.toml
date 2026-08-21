@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hbl-rag-backend"
+version = "0.1.0"
+description = "Offline retrieval assistant over HBL policy and SOP documents"
+requires-python = ">=3.13"
+dynamic = ["dependencies"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+# `hbl health` once the package is installed; `python -m app.cli health` always.
+hbl = "app.cli:main"
+
+[tool.setuptools.dynamic]
+# One source of truth — requirements.txt is what gets installed on the GPU box.
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"

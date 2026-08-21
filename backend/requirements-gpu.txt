@@ -1,0 +1,49 @@
+# Workstation-only dependencies — the RTX 4060 Ti box, never the laptop.
+#
+# Unpinned on purpose. Versions get pinned here the first time each package is
+# actually installed and shown to work on the workstation; a guess written in
+# advance would be a version nobody has run.
+#
+# Install per phase rather than all at once. Each block says which phase needs
+# it, and several are candidates that lose the Phase 01 bench-off and get
+# removed rather than kept "just in case".
+#
+#     pip install -r requirements.txt
+#     pip install -r requirements-gpu.txt
+#
+# torch must come from the CUDA index, not PyPI's default CPU wheel:
+#     pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+-r requirements.txt
+
+# --- Phase 01: page probing and OCR -------------------------------------------
+pymupdf                 # page probe, text layer, rasterising
+pillow                  # already present for brand/make_icons.py
+
+# OCR candidates for the bench-off. Install the ones being compared; delete the
+# losers afterwards. PaddleOCR is not here — it does not support Python 3.13,
+# which was a deliberate choice made with that cost known.
+#
+# Warning: docling, MinerU and Surya each download their own model weights the
+# first time they *run*, not when pip installs them. On a network that gates
+# access behind a permission request, that fetch fails silently-ish long after
+# the install looked fine. Run each once, deliberately, while access is open —
+# and set HBL_HF_OFFLINE=false for that window, because the default of true is
+# what stops a library reaching for the network unasked.
+#
+# The fourth candidate, `vlm`, needs nothing here: qwen2.5vl:7b is already
+# pulled and Ollama is already a dependency of the generation path.
+# docling
+# magic-pdf             # MinerU
+# surya-ocr
+
+# --- Phase 02–03: chunking, embedding, storage --------------------------------
+# torch                 # CUDA build, see the note above
+# sentence-transformers # runs BAAI/bge-m3 and the cross-encoder
+# qdrant-client         # embedded/local mode, no Docker
+
+# --- Phase 06: API ------------------------------------------------------------
+# fastapi
+# uvicorn[standard]
+# python-multipart      # PDF upload
+# sse-starlette

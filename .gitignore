@@ -37,6 +37,11 @@ models/
 .cache/
 hf_cache/
 
+# Offline install bundle — wheels downloaded on the laptop and carried to the
+# air-gapped workstation. Large, and reproducible from requirements files.
+wheels/
+transfer/
+
 # --- Secrets -----------------------------------------------------------------
 .env
 .env.*
