@@ -1,9 +1,10 @@
 # Backend
 
-The offline half of the assistant. Phases 00 and 01 are done: configuration,
+The offline half of the assistant. Phases 00 through 03 are done: configuration,
 structured logging, a headless CLI, the four provider contracts, per-page
-routing, the OCR bench-off, and extraction to markdown. No chunking, index,
-retrieval or API yet — those are Phases 02–06.
+routing, the OCR bench-off, extraction to markdown, structure-aware chunking,
+and the index with true deletion. No retrieval, generation or API yet — those
+are Phases 04–06.
 
 ## Install
 
@@ -52,6 +53,11 @@ python -m app.cli verify              # audit the extraction; exits 1 on real pr
 python -m app.cli verify --fast       # skip the prior-OCR comparison
 
 python -m app.cli chunk               # split parsed markdown into retrievable chunks
+
+python -m app.cli index               # embed chunks into Qdrant + the registry
+python -m app.cli index --embedder hashing   # no weights needed; dev only
+python -m app.cli documents           # what is indexed, and in what state
+python -m app.cli delete <doc_id> --yes      # remove it from everywhere
 ```
 
 `pip install -e .` also puts an `hbl` script on PATH, so `hbl health` works from
@@ -96,6 +102,13 @@ app/
     structure.py       markdown back into sections, minus furniture and contents pages
     chunk.py           sections into retrievable units with breadcrumbs
     pipeline.py        runs the three over the corpus, writes chunks.jsonl
+  store/
+    registry.py        SQLite: documents, chunks and the FTS5 keyword index
+    vectors.py         embedded Qdrant, one point per chunk
+    index.py           indexing, and deletion that leaves nothing behind
+  providers/embedding/
+    bge_m3.py          the real embedder, 1024 dimensions, GPU
+    hashing.py         DEVELOPMENT ONLY: hashed n-grams, no model
   providers/ocr/
     vlm.py             the chosen engine: a vision model served by Ollama
     docling.py         adapter kept for the record; never needed
@@ -257,11 +270,36 @@ Nothing in that line marks where the title stops — but the contents page says
 splits the body back out. Without it the breadcrumb on every clause in the
 section carries a sentence of prose, and that breadcrumb is the citation.
 
+### What "deleted" has to mean
+
+Two stores cannot share a transaction. SQLite holds the registry, the chunks
+and the keyword index and commits all three together; Qdrant is separate. So
+deletion is ordered so every failure leaves evidence rather than a document
+that is half gone and looks whole:
+
+1. mark the document `deleting` — committed, survives a crash
+2. drop its vectors
+3. drop its registry row, chunks and keyword entries in one transaction
+4. remove its parsed markdown, sidecar and rendered page images
+
+A crash after step 1 leaves a row saying `deleting`, which `purge_unfinished`
+finds and completes on the next run. Step 4 matters as much as the rest: the
+derived files carry the same confidential content as the PDF, so "deleted" has
+to mean gone from disk, not merely unindexed.
+
+### Why a hashing embedder exists
+
+So the registry, the vector store, indexing and deletion could be built and
+proven on a laptop with no GPU and no staged weights. It hashes character
+n-grams into buckets — two texts sharing spelling land near each other, which
+is enough for a smoke test and nothing like enough to retrieve a policy clause.
+It warns on every load, because the risk is not somebody choosing it but
+somebody forgetting they did.
+
 ## Next
 
-**Index, registry and true deletion** (Phase 03) — Qdrant with payload indexes,
-a SQLite registry with FTS5 for keyword search in the same database, so
-deleting a document removes its vectors, keyword entries and registry row in
-one transaction.
+**Hybrid search with reranking** (Phase 04) — dense top-30 and BM25 top-30
+fused with reciprocal rank fusion, reranked by a cross-encoder, cut to top-8.
+Both halves already exist; this joins them.
 
 The full plan is `docs/build-plan.html`; open it in a browser.

@@ -29,19 +29,33 @@ def test_status_does_not_import_the_implementation(monkeypatch: pytest.MonkeyPat
     assert "app.providers.llm.ollama" not in sys.modules
 
 
-def test_llm_and_ocr_are_ready_while_the_retrieval_models_are_not_yet_written():
+def test_provider_states_reflect_what_this_machine_can_actually_run():
+    """The whole point of the registry: an honest answer from a laptop with no GPU.
+
+    `llm` and `ocr` are ready because both reach Ollama over HTTP and need
+    nothing installed here. `bge-m3` is written now, so it reports its missing
+    dependencies rather than claiming to be unimplemented. The reranker is
+    genuinely not written yet.
+    """
     settings = Settings()
     assert registry.status(settings, "llm").state == "ready"
-    # Chosen by bench-off and backed by Ollama, so it needs nothing installed.
     assert registry.status(settings, "ocr").state == "ready"
-    assert registry.status(settings, "embedder").state == "declared"
+    assert registry.status(settings, "embedder").state == "missing-deps"
     assert registry.status(settings, "reranker").state == "declared"
 
 
+def test_an_embedder_with_no_weights_here_still_reports_rather_than_importing():
+    """`missing-deps` has to be reachable without importing torch, which is the
+    property that lets `health` run on the laptop at all."""
+    status = registry.status(Settings(), "embedder")
+    assert set(status.missing) == {"torch", "sentence_transformers"}
+    assert "app.providers.embedding.bge_m3" not in sys.modules
+
+
 def test_declared_providers_fail_to_load_with_their_phase_named(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("HBL_EMBEDDING_PROVIDER", "bge-m3")
-    with pytest.raises(ProviderNotImplemented, match="Phase 03"):
-        registry.load_embedder(Settings())
+    monkeypatch.setenv("HBL_RERANKER_PROVIDER", "bge-reranker-v2-m3")
+    with pytest.raises(ProviderNotImplemented, match="Phase 04"):
+        registry.load_reranker(Settings())
 
 
 def test_unknown_provider_name_lists_the_registered_ones(monkeypatch: pytest.MonkeyPatch):

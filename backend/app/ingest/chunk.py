@@ -162,7 +162,7 @@ def chunk_document(
         pages = tuple(sorted({block.page for block in buffer}))
         kind = "table" if all(block.kind == "table" for block in buffer) else "prose"
         chunks.append(
-            _build(identity, settings, section, number, pages, body, kind, count_tokens)
+            _build(identity, settings, section, number, pages, body, kind, count_tokens, len(chunks))
         )
         stats.chunks += 1
         stats.sections.add(section)
@@ -194,7 +194,8 @@ def chunk_document(
             text = block.text
             chunks.append(
                 _build(
-                    identity, settings, section, number, (block.page,), text, "table", count_tokens
+                    identity, settings, section, number, (block.page,), text, "table",
+                    count_tokens, len(chunks),
                 )
             )
             stats.chunks += 1
@@ -234,6 +235,7 @@ def _build(
     body: str,
     kind: str,
     count_tokens: Callable[[str], int],
+    ordinal: int,
 ) -> Chunk:
     text = body
     if settings.prefix_breadcrumb:
@@ -248,7 +250,14 @@ def _build(
         label = f"{name} — {section}" if section else name
         text = f"[{label}]\n\n{body}"
 
-    digest = hashlib.sha256(f"{identity.doc_id}|{section}|{pages}|{body}".encode()).hexdigest()[:16]
+    # `ordinal` is in the hash because a document can genuinely repeat itself:
+    # the Compliance Assurance Program has the same short table five times on
+    # one page, and without it all five collapse to one id and the registry
+    # rejects the document on a UNIQUE constraint. Position is stable across
+    # runs, so ids stay stable too.
+    digest = hashlib.sha256(
+        f"{identity.doc_id}|{ordinal}|{section}|{pages}|{body}".encode()
+    ).hexdigest()[:16]
     return Chunk(
         chunk_id=f"{identity.doc_id}:{digest}",
         doc_id=identity.doc_id,

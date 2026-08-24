@@ -451,6 +451,188 @@ def cmd_extract(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+# --- index / documents / delete -----------------------------------------------
+
+
+def _recorded_sha256(settings: Settings, doc_id: str) -> str:
+    """The document hash extraction wrote into its provenance sidecar."""
+    parsed = settings.paths.parsed_dir
+    if parsed is None:
+        return ""
+    for sidecar in parsed.glob("*.pages.json"):
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        from app.ingest.metadata import identify
+
+        if identify(payload.get("document", "")).doc_id == doc_id:
+            return str(payload.get("sha256", ""))
+    return ""
+
+
+def _open_stores(settings: Settings):
+    """Registry and vector store, opened together and closed together."""
+    from app.store.registry import Registry
+    from app.store.vectors import VectorStore
+
+    registry = Registry(settings.paths.registry_db)  # type: ignore[arg-type]
+    vectors = VectorStore(
+        settings.paths.qdrant_dir,  # type: ignore[arg-type]
+        settings.retrieval.qdrant_collection,
+        settings.embedding.dimension,
+    )
+    return registry, vectors
+
+
+def cmd_index(args: argparse.Namespace, settings: Settings) -> int:
+    from app.ingest.pipeline import chunk_corpus
+    from app.store.index import index_document, purge_unfinished
+
+    if args.embedder:
+        settings = settings.model_copy(
+            update={"embedding": settings.embedding.model_copy(update={"provider": args.embedder})}
+        )
+
+    embedder = registry.load_embedder(settings)
+    documents = chunk_corpus(settings, [Path(p) for p in args.paths] if args.paths else None)
+
+    store, vectors = _open_stores(settings)
+    try:
+        if resumed := purge_unfinished(store, vectors, settings):
+            print(f"  finished {len(resumed)} deletion(s) a previous run left half-done\n")
+
+        results = []
+        for document in documents:
+            # The hash extraction already computed and wrote beside the parsed
+            # markdown. Recomputing it here would mean finding the PDF again by
+            # guessing at its filename, and the slug is lossy.
+            digest = _recorded_sha256(settings, document.identity.doc_id) or document.identity.doc_id
+
+            print(f"  {document.identity.title[:52]:54} {len(document.chunks):>4} chunks", end="", flush=True)
+            result = index_document(
+                document.identity,
+                document.chunks,
+                sha256=digest,
+                pages=0,
+                registry=store,
+                vectors=vectors,
+                embedder=embedder,
+            )
+            results.append(result)
+            if result.skipped_duplicate_of:
+                print(f"  duplicate of {result.skipped_duplicate_of[:28]}")
+            elif result.error:
+                print(f"  FAILED {result.error[:50]}")
+            else:
+                print(f"  {result.vectors:>5} vectors  {result.seconds:>6.1f}s")
+
+        if args.json:
+            from dataclasses import asdict
+
+            print(json.dumps([asdict(r) for r in results], indent=2))
+            return 1 if any(r.error for r in results) else 0
+
+        indexed = [r for r in results if r.ok and not r.skipped_duplicate_of]
+        print(
+            f"\n  {len(indexed)} document(s), {sum(r.chunks for r in indexed)} chunks, "
+            f"{vectors.count()} vectors in {settings.retrieval.qdrant_collection}"
+        )
+        print(f"  registry {_relative(settings.paths.registry_db)}")  # type: ignore[arg-type]
+        if settings.embedding.provider == "hashing":
+            print(
+                "\n  NOTE: the hashing embedder was used. Vectors carry spelling, not\n"
+                "  meaning, so retrieval results are not meaningful. Re-index with\n"
+                "  HBL_EMBEDDING_PROVIDER=bge-m3 once the weights are staged."
+            )
+        print()
+        return 1 if any(r.error for r in results) else 0
+    finally:
+        store.close()
+        vectors.close()
+
+
+def cmd_documents(args: argparse.Namespace, settings: Settings) -> int:
+    store, vectors = _open_stores(settings)
+    try:
+        rows = store.documents(status=args.status)
+        if args.json:
+            from dataclasses import asdict
+
+            print(json.dumps([asdict(r) for r in rows], indent=2))
+            return 0
+
+        if not rows:
+            print("\n  Nothing indexed. Run `hbl index`.\n")
+            return 0
+
+        table = [["document", "year", "status", "chunks", "vectors", "family"]]
+        for row in rows:
+            table.append(
+                [
+                    row.title[:42],
+                    str(row.year or "-"),
+                    row.status,
+                    str(row.chunk_count),
+                    str(vectors.count(row.doc_id)),
+                    row.policy_family[:30],
+                ]
+            )
+        print("\nIndexed documents\n")
+        print(_table(table))
+
+        families: dict[str, list] = {}
+        for row in rows:
+            families.setdefault(row.policy_family, []).append(row)
+        rival = {k: v for k, v in families.items() if len(v) > 1}
+        if rival:
+            print("\n  In more than one vintage:")
+            for members in rival.values():
+                years = ", ".join(str(m.year or "undated") for m in members)
+                print(f"      {members[0].title[:50]:52} {years}")
+        print()
+        return 0
+    finally:
+        store.close()
+        vectors.close()
+
+
+def cmd_delete(args: argparse.Namespace, settings: Settings) -> int:
+    from app.store.index import delete_document
+
+    store, vectors = _open_stores(settings)
+    try:
+        row = store.get(args.doc_id)
+        if row is None:
+            known = ", ".join(d.doc_id for d in store.documents()[:6]) or "nothing indexed"
+            raise HblError(f"no document {args.doc_id!r}. Indexed: {known}")
+
+        if not args.yes:
+            print(f"\n  {row.title} ({row.year or 'undated'})")
+            print(f"  {row.chunk_count} chunks, {vectors.count(row.doc_id)} vectors")
+            print("\n  This removes its vectors, keyword entries, registry row, parsed")
+            print("  markdown and rendered page images. The source PDF is left alone.")
+            print("  Re-run with --yes to proceed.\n")
+            return 1
+
+        result = delete_document(
+            args.doc_id, registry=store, vectors=vectors, settings=settings,
+            remove_files=not args.keep_files,
+        )
+        print(
+            f"\n  Deleted {args.doc_id}: {result.vectors_removed} vectors, "
+            f"{result.chunks_removed} chunks, {len(result.files_removed)} file(s)"
+        )
+        remaining = store.search(row.title, limit=3)
+        still = [h for h in remaining if h.doc_id == args.doc_id]
+        print(f"  Keyword index now returns {len(still)} fragment(s) of it.")
+        print(f"  Vector store now holds {vectors.count(args.doc_id)} of its points.\n")
+        return 0
+    finally:
+        store.close()
+        vectors.close()
+
+
 # --- chunk -------------------------------------------------------------------
 
 
@@ -734,6 +916,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     extract.add_argument("--json", action="store_true")
     extract.set_defaults(handler=cmd_extract)
+
+    index = sub.add_parser("index", help="embed chunks into the vector store and registry")
+    index.add_argument("paths", nargs="*", help="parsed .md files (default: all)")
+    index.add_argument("--embedder", help="override HBL_EMBEDDING_PROVIDER for this run")
+    index.add_argument("--json", action="store_true")
+    index.set_defaults(handler=cmd_index)
+
+    documents = sub.add_parser("documents", help="what is indexed, and in what state")
+    documents.add_argument("--status", help="only documents in this state")
+    documents.add_argument("--json", action="store_true")
+    documents.set_defaults(handler=cmd_documents)
+
+    delete = sub.add_parser("delete", help="remove a document from both stores and from disk")
+    delete.add_argument("doc_id")
+    delete.add_argument("--yes", action="store_true", help="required; deletion is not reversible")
+    delete.add_argument("--keep-files", action="store_true", help="leave parsed markdown and page images")
+    delete.set_defaults(handler=cmd_delete)
 
     chunk = sub.add_parser(
         "chunk",

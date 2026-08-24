@@ -62,6 +62,10 @@ class DocumentIdentity:
     doc_id: str
     #: Shown to the reader in a citation. The filename, tidied.
     title: str
+    #: The original PDF filename, untouched. Deletion needs it: extraction named
+    #: the parsed markdown and page images after this, not after the tidied
+    #: title, and a slug cannot be reversed back into it.
+    source_name: str
     #: Shared by every vintage of the same policy.
     policy_family: str
     #: None when the filename records no year and none could be inferred.
@@ -112,6 +116,7 @@ def identify(pdf_name: str) -> DocumentIdentity:
     return DocumentIdentity(
         doc_id=_slug(Path(pdf_name).stem),
         title=title or Path(pdf_name).stem,
+        source_name=pdf_name,
         policy_family=_slug(family_source),
         year=year,
         circular=circular,
