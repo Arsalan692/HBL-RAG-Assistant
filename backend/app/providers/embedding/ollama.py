@@ -68,6 +68,20 @@ class OllamaEmbedder:
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             body = exc.read().decode("utf-8", "replace")[:400]
+            # Not every Ollama build serves embeddings. Some are started without
+            # the endpoint enabled and answer 501 with a message about a flag
+            # that is not part of the `ollama serve` interface — which reads as
+            # a bug in this code rather than a server that is simply not
+            # configured for it. Say what it means and where else to go.
+            if exc.code == 501 or "does not support embeddings" in body:
+                raise ProviderUnavailable(
+                    f"the Ollama server at {self._base} does not serve embeddings "
+                    f"({body.strip()}).\n"
+                    "Either start it with embeddings enabled, or switch to the "
+                    "in-process route: set HBL_EMBEDDING_PROVIDER=bge-m3 with "
+                    "HBL_EMBEDDING_MODEL pointing at the staged weights folder. "
+                    "That route needs torch and sentence-transformers installed."
+                ) from exc
             raise ProviderUnavailable(f"Ollama returned {exc.code} for {path}: {body}") from exc
         except URLError as exc:
             raise ProviderUnavailable(
