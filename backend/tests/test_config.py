@@ -128,3 +128,21 @@ def test_the_embedder_reads_further_than_the_largest_chunk():
 
     assert embedding.max_length >= chunking.max_table_tokens
     assert embedding.max_length > chunking.target_tokens * 2
+
+
+def test_both_roots_can_live_outside_the_repository(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """The workstation is re-cloned rather than pulled, so anything inside the
+    working copy dies with it — including ~55 minutes of extracted markdown.
+    Pointing both roots at absolute paths outside the clone is what makes a
+    fresh clone cheap, so it has to keep working."""
+    monkeypatch.setenv("HBL_DATA_DIR", str(tmp_path / "hbl-data"))
+    monkeypatch.setenv("HBL_STORAGE_DIR", str(tmp_path / "hbl-storage"))
+
+    paths = PathSettings()
+
+    assert paths.parsed_dir == (tmp_path / "hbl-data" / "parsed").resolve()
+    assert paths.qdrant_dir == (tmp_path / "hbl-storage" / "qdrant").resolve()
+    assert paths.registry_db == (tmp_path / "hbl-storage" / "registry.sqlite").resolve()
+    # Nothing may quietly fall back to a path inside the repository.
+    for location in paths.directories().values():
+        assert ROOT_DIR not in location.parents

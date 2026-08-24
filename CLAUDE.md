@@ -260,6 +260,41 @@ because they were good practice rather than air-gap workarounds:
 - **`qwen2.5vl:7b` and `bge-m3` are already pulled there.** Ollama works, but
   note the embedding endpoint may not: see below.
 
+### The workstation is re-cloned, never pulled
+
+`git pull` is not available there. Each time, the repository is cloned fresh and
+the previous copy deleted. Everything gitignored therefore **dies with the old
+clone** — and one of those things is expensive:
+
+| Lost on re-clone | Cost to rebuild |
+| --- | --- |
+| `data/parsed/` | **~55 minutes of GPU extraction** |
+| `storage/qdrant/`, `registry.sqlite` | a full re-index |
+| `data/documents/` | re-copying the 20 PDFs by hand |
+| `backend/.env` | retyping the configuration |
+
+So **keep the durable artefacts outside the working copy.** Both roots accept an
+absolute path, and set as Windows *user environment variables* they survive the
+clone that would otherwise take the `.env` with it:
+
+```
+setx HBL_DATA_DIR     "D:\hbl-data"
+setx HBL_STORAGE_DIR  "D:\hbl-storage"
+```
+
+A fresh clone then needs only:
+
+```bash
+pip install -e backend
+hbl health          # paths should point outside the clone
+```
+
+and the corpus, the extracted markdown and the index are all still there.
+
+When adding anything durable, put it under one of those two roots rather than
+beside the code. A file written into the repository is a file that exists until
+the next clone.
+
 ### The Ollama embedding endpoint may be disabled
 
 There are two routes to bge-m3 and they are interchangeable behind the
