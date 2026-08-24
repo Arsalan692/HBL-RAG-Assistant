@@ -112,3 +112,19 @@ def test_get_settings_is_cached():
     get_settings.cache_clear()
     assert get_settings() is get_settings()
     get_settings.cache_clear()
+
+
+def test_the_embedder_reads_further_than_the_largest_chunk():
+    """A chunk longer than `max_length` is silently truncated at embedding time
+    and its tail never becomes searchable — with nothing reporting it.
+
+    Chunking targets 700 tokens but tables are never split, so a single chunk
+    can run well past that. The largest in this corpus is about 1,291 tokens.
+    """
+    from app.config import ChunkSettings, EmbeddingSettings
+
+    embedding = EmbeddingSettings(_env_file=None)
+    chunking = ChunkSettings(_env_file=None)
+
+    assert embedding.max_length >= chunking.max_table_tokens
+    assert embedding.max_length > chunking.target_tokens * 2

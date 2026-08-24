@@ -215,8 +215,17 @@ class EmbeddingSettings(BaseSettings):
     provider: str = "bge-m3"
     model: str = "BAAI/bge-m3"
     #: Must match the Qdrant collection; changing it means a full re-index.
+    #: bge-m3 reports hidden_size 1024, so this is the model's number, not a
+    #: choice.
     dimension: int = 1024
-    max_length: int = 1024
+
+    #: Tokens the embedder reads before truncating. bge-m3 accepts 8192, so
+    #: this is a cost decision rather than a model limit — but it must clear the
+    #: largest chunk or the tail of that chunk is never searchable and nothing
+    #: reports it. Measured on this corpus the largest chunk is ~1,291 tokens,
+    #: and tables are deliberately never split so a big one cannot be trimmed
+    #: to fit. 2048 covers that with room for the estimator being optimistic.
+    max_length: int = 2048
     batch_size: int = 8
     normalize: bool = True
 
