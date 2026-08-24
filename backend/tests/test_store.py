@@ -314,3 +314,47 @@ def test_the_hashing_embedder_says_what_it_is(settings: Settings) -> None:
     ok, detail = HashingEmbedder(settings.embedding).probe()
     assert ok
     assert "DEVELOPMENT ONLY" in detail
+
+
+# --- the Ollama embedder route ----------------------------------------------
+
+
+def test_a_local_model_path_becomes_an_ollama_tag(settings: Settings) -> None:
+    """`.env` may hold `storage/models/bge-m3` for the sentence-transformers
+    route. Ollama wants a tag, and would look for a model literally named
+    `storage/models/bge-m3`."""
+    from app.config import EmbeddingSettings
+    from app.providers.embedding.ollama import OllamaEmbedder
+
+    for configured, expected in [
+        ("bge-m3", "bge-m3"),
+        ("bge-m3:latest", "bge-m3:latest"),
+        ("storage/models/bge-m3", "bge-m3"),
+        (r"storage\models\bge-m3", "bge-m3"),
+    ]:
+        embedder = OllamaEmbedder(EmbeddingSettings(_env_file=None, model=configured))
+        assert embedder.model == expected
+
+
+def test_vectors_are_normalised_whatever_ollama_returns() -> None:
+    """The vector store uses cosine distance, which only equals a dot product on
+    unit vectors. sentence-transformers has a Normalize module; Ollama promises
+    nothing, so it is done here unconditionally."""
+    from app.providers.embedding.ollama import _unit
+
+    assert _unit([3.0, 4.0]) == [0.6, 0.8]
+    already = _unit([0.6, 0.8])
+    assert all(abs(a - b) < 1e-9 for a, b in zip(already, [0.6, 0.8]))
+    assert _unit([0.0, 0.0]) == [0.0, 0.0]  # must not divide by zero
+
+
+def test_the_embedding_endpoint_must_be_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config import EmbeddingSettings
+    from app.errors import ConfigError
+
+    monkeypatch.setenv("HBL_EMBEDDING_BASE_URL", "https://api.openai.com")
+    with pytest.raises((ConfigError, Exception)) as excinfo:
+        EmbeddingSettings()
+    assert "not this machine" in str(excinfo.value) or isinstance(
+        getattr(excinfo.value, "__cause__", None), ConfigError
+    )

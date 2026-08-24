@@ -229,6 +229,19 @@ class EmbeddingSettings(BaseSettings):
     batch_size: int = 8
     normalize: bool = True
 
+    #: Only the `ollama` provider uses these. Duplicated from LLMSettings rather
+    #: than reached across to it so every provider stays constructible from
+    #: exactly one settings object — the property that keeps the registry
+    #: uniform. Validated local, like every other endpoint here.
+    base_url: str = "http://127.0.0.1:11434"
+    timeout_s: float = 120.0
+    keep_alive: str = "30m"
+
+    @field_validator("base_url")
+    @classmethod
+    def _local_only(cls, value: str) -> str:
+        return _require_local_url(value, "HBL_EMBEDDING_BASE_URL")
+
 
 class RerankerSettings(BaseSettings):
     """The cross-encoder that reorders fused candidates before generation."""

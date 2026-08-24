@@ -59,6 +59,13 @@ _SPECS: tuple[ProviderSpec, ...] = (
     ),
     ProviderSpec(
         interface="embedder",
+        name="ollama",
+        summary="bge-m3 through the Ollama already running. No torch, no weights to stage.",
+        target="app.providers.embedding.ollama:OllamaEmbedder",
+        requires=(),
+    ),
+    ProviderSpec(
+        interface="embedder",
         name="bge-m3",
         summary="BAAI/bge-m3 dense vectors, in-process on the GPU. 1024 dimensions.",
         target="app.providers.embedding.bge_m3:BgeM3Embedder",
