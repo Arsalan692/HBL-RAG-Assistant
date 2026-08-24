@@ -228,24 +228,63 @@ Only relevant if touching the UI.
   there, not inline.
 - Motion: one easing curve, `cubic-bezier(0.32, 0.72, 0, 1)`, durations 180–260ms.
 
-## GPU workstation — air-gapped
+## GPU workstation — outbound-restricted, not air-gapped
 
-**It has no internet at all.** Everything is downloaded on the laptop, moved to a
-shared folder, then copied onto the workstation by hand.
-`docs/download-manifest.html` is the full transfer kit — open it in a browser.
-What this means when writing code:
+Corrected 2026-08-24, having previously been recorded here as fully air-gapped.
+**The workstation can reach the internet**: `pip install` works, PyPI and
+pytorch.org are reachable, libraries install directly. Hand-carrying wheels from
+the laptop is no longer necessary.
 
-- **Never reference anything by an online name at run time.** Model names in
-  `.env` are local folder paths (`storage/models/bge-m3`), not repo ids. A
-  `from_pretrained("BAAI/...")` that "just works" on the laptop hangs there.
-- `HBL_HF_OFFLINE=true` stays on permanently. It is not a download-window
-  setting; it is what stops a library trying.
-- `docling`, MinerU and `surya` fetch their own weights **at first run**. Each
-  needs its model repo staged by hand and a cache env var pointed at it — real
-  per-engine work, redone for every dead end.
-- **`qwen2.5vl:7b` is already there** (which also confirms Ollama works). It is
-  the `vlm` OCR candidate and needs nothing staged, so bench it first; only stage
-  Docling if it isn't good enough.
+The constraint that actually matters is unchanged, and it was never really about
+the network — it is about direction:
+
+- **Inbound is fine.** Downloading packages and model weights onto that machine
+  is ordinary work. Do it there rather than staging a transfer.
+- **Outbound is not.** No document, no page image, no parsed markdown and no
+  chunk may leave. No hosted OCR, no cloud embedding, no remote inference of any
+  kind. `_require_local_url` in `config.py` enforces this at the one place a
+  model endpoint enters the system, and stays.
+
+Consequences for how code is written — most of these survive the correction,
+because they were good practice rather than air-gap workarounds:
+
+- **Model names in `.env` may be repo ids again** where a download is wanted.
+  Local folder paths still work and are still preferable for anything already
+  staged, since they cannot silently re-download.
+- `HBL_HF_OFFLINE=true` is now a *choice*, not a necessity. Keep it on: it means
+  weights are fetched deliberately, once, by a command someone ran — never as a
+  side effect of a library call during an ingest run.
+- `docling`, MinerU and `surya` fetching their own weights at first run is no
+  longer a blocker. It stays undesirable — a run that pauses to download is a
+  run whose timings mean nothing.
+- **`qwen2.5vl:7b` and `bge-m3` are already pulled there.** Ollama works, but
+  note the embedding endpoint may not: see below.
+
+### The Ollama embedding endpoint may be disabled
+
+There are two routes to bge-m3 and they are interchangeable behind the
+`Embedder` protocol, so choosing between them is one line in `.env`:
+
+| `HBL_EMBEDDING_PROVIDER` | How | Needs |
+| --- | --- | --- |
+| `ollama` | HTTP to the Ollama already running | nothing — stdlib urllib |
+| `bge-m3` | sentence-transformers, in-process | torch + weights (~4.6 GB) |
+
+Prefer `ollama` — but **check it first**. The laptop's Ollama answers
+`501 This server does not support embeddings`, which is llama.cpp phrasing
+rather than `ollama serve`, so the build there has the endpoint off. If the
+workstation does the same, the in-process route is the only one available.
+
+```bash
+curl http://127.0.0.1:11434/api/embed -d '{"model":"bge-m3","input":"test"}'
+```
+
+An array of numbers means `ollama` works. A 501 means use `bge-m3`.
+`hbl health --probe` reports which case you are in and names the fix.
+
+**Phase 04 needs torch regardless.** The reranker is a cross-encoder and Ollama
+has no rerank endpoint, so `pip install torch sentence-transformers` on the
+workstation is wanted either way — the Ollama route only defers it.
 
 ## Answering speed is a requirement
 
@@ -267,7 +306,7 @@ not tokens per second.
 `hbl bench` ran all three vision models over five representative pages on the
 RTX 4060 Ti (2026-08-21). Winner: **`qwen2.5vl:7b`**, already set as the
 default in `config.py`. Docling, MinerU and Surya were never needed, so nothing
-had to be staged on the air-gapped box.
+had to be staged on the workstation.
 
 The pages were picked by measurement (`classify --pick-bench`), one per
 category, across five documents. Re-run it if the corpus changes:
