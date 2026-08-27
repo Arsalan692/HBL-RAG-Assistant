@@ -76,8 +76,10 @@ _SPECS: tuple[ProviderSpec, ...] = (
         interface="reranker",
         name="bge-reranker-v2-m3",
         summary="BAAI cross-encoder, scores query against each fused candidate.",
+        target="app.providers.reranker.bge_reranker:BgeRerankerV2M3",
+        # No Ollama route exists for reranking, so unlike the embedder there is
+        # no way to reach this one without torch on the machine that runs it.
         requires=("torch", "sentence_transformers"),
-        phase="04",
     ),
     # --- Page recognition ----------------------------------------------------
     # Four candidates, one winner, decided on real pages in Phase 01. They are
