@@ -358,3 +358,206 @@ def test_the_embedding_endpoint_must_be_local(monkeypatch: pytest.MonkeyPatch) -
     assert "not this machine" in str(excinfo.value) or isinstance(
         getattr(excinfo.value, "__cause__", None), ConfigError
     )
+
+
+# --- which model built the index ---------------------------------------------
+#
+# Every embedder here emits HBL_EMBEDDING_DIMENSION floats, so Qdrant cannot
+# tell hashed n-grams from bge-m3 and will accept both into one collection.
+# Nothing crashes. Retrieval just quietly stops meaning anything, which is the
+# hardest kind of fault to notice and the reason these tests exist.
+
+
+def test_the_hashing_stand_in_never_claims_to_be_the_configured_model(
+    settings: Settings,
+) -> None:
+    """`--embedder hashing` overrides the provider and leaves the model setting
+    saying `BAAI/bge-m3`. Reporting that would stamp an index of arithmetic as
+    though real weights had built it."""
+    settings.embedding.model = "BAAI/bge-m3"
+    assert HashingEmbedder(settings.embedding).fingerprint == f"hashing:{DIMENSION}"
+
+
+def test_the_same_weights_reached_two_ways_are_one_vector_space(
+    settings: Settings,
+) -> None:
+    """The laptop loads bge-m3 from a folder; the workstation may serve it
+    through Ollama. Switching between them must not demand a re-index."""
+    from app.providers.embedding.bge_m3 import BgeM3Embedder
+    from app.providers.embedding.ollama import OllamaEmbedder
+
+    in_process = BgeM3Embedder(
+        settings.embedding.model_copy(update={"model": "D:/transfer/bge-m3"})
+    )
+    served = OllamaEmbedder(settings.embedding.model_copy(update={"model": "bge-m3"}))
+    repo_id = BgeM3Embedder(settings.embedding.model_copy(update={"model": "BAAI/bge-m3"}))
+
+    assert in_process.fingerprint == served.fingerprint == repo_id.fingerprint
+    assert in_process.fingerprint == f"bge-m3:{DIMENSION}"
+
+
+def test_an_empty_collection_is_stamped_with_whoever_writes_first(
+    registry: Registry, vectors: VectorStore, embedder: HashingEmbedder
+) -> None:
+    from app.store.index import ensure_same_embedder
+
+    assert registry.index_fingerprint() == ""
+    ensure_same_embedder(registry, vectors, embedder)
+    assert registry.index_fingerprint() == embedder.fingerprint
+
+    # Second run with the same embedder is a no-op, not a re-stamp.
+    assert ensure_same_embedder(registry, vectors, embedder) == ""
+
+
+def test_switching_embedder_is_refused_rather_than_silently_mixed(
+    registry: Registry, vectors: VectorStore, embedder: HashingEmbedder, settings: Settings
+) -> None:
+    from app.errors import IndexMismatch
+    from app.store.index import ensure_same_embedder
+
+    ensure_same_embedder(registry, vectors, embedder)
+    _index("Donations Policy 2024.pdf", ["a threshold of PKR 500,000 applies"],
+           registry=registry, vectors=vectors, embedder=embedder, settings=settings)
+
+    class OtherModel:
+        name, model, dimension = "bge-m3", "bge-m3", DIMENSION
+        fingerprint = f"bge-m3:{DIMENSION}"
+
+    with pytest.raises(IndexMismatch) as excinfo:
+        ensure_same_embedder(registry, vectors, OtherModel())  # type: ignore[arg-type]
+    # The error has to carry the way out, not just the complaint.
+    assert "hbl index --reset" in str(excinfo.value)
+    assert "hashing" in str(excinfo.value)
+
+
+def test_an_index_of_unknown_origin_is_not_adopted_on_trust(
+    registry: Registry, vectors: VectorStore, embedder: HashingEmbedder, settings: Settings
+) -> None:
+    """Vectors written before this check existed. They may be anything, so the
+    one thing that must not happen is assuming they match."""
+    from app.errors import IndexMismatch
+    from app.store.index import ensure_same_embedder
+
+    _index("Donations Policy 2024.pdf", ["a threshold of PKR 500,000 applies"],
+           registry=registry, vectors=vectors, embedder=embedder, settings=settings)
+    registry.clear_index_fingerprint()
+
+    with pytest.raises(IndexMismatch, match="nothing recorded which embedder"):
+        ensure_same_embedder(registry, vectors, embedder)
+
+
+def test_reset_empties_the_collection_and_re_stamps_it(
+    registry: Registry, vectors: VectorStore, embedder: HashingEmbedder, settings: Settings
+) -> None:
+    from app.store.index import ensure_same_embedder
+
+    _index("Donations Policy 2024.pdf", ["a threshold of PKR 500,000 applies"],
+           registry=registry, vectors=vectors, embedder=embedder, settings=settings)
+    assert vectors.count() > 0
+
+    ensure_same_embedder(registry, vectors, embedder, reset=True)
+    assert vectors.count() == 0
+    assert registry.index_fingerprint() == embedder.fingerprint
+
+
+# --- identifiers that live outside the prose ---------------------------------
+
+
+def test_a_circular_number_is_findable_though_no_chunk_contains_it(
+    registry: Registry, vectors: VectorStore, embedder: HashingEmbedder, settings: Settings
+) -> None:
+    """`A-INST-2025-01` is written on the covering instruction's front page and
+    nowhere in any clause. It reached the document title and stopped — so the
+    half of retrieval that exists to find identifiers could not find the
+    corpus's most quotable one."""
+    from app.ingest.metadata import DocumentIdentity
+
+    identity = DocumentIdentity(
+        doc_id="sanctions-2025", title="Sanctions Compliance Policy",
+        source_name="Sanctions.pdf", policy_family="sanctions", year=2025,
+        circular="A-INST-2025-01",
+    )
+    chunks = [_chunk("sanctions-2025", 1, "Screening is performed against the list.",
+                     title=identity.title, year=2025)]
+    index_document(identity, chunks, sha256="hash-sanctions", pages=1,
+                   registry=registry, vectors=vectors, embedder=embedder)
+
+    assert "A-INST" not in chunks[0].text
+    hits = registry.search("A-INST-2025-01")
+    assert [h.doc_id for h in hits] == ["sanctions-2025"]
+
+
+def test_an_identifier_does_not_outrank_the_prose_that_answers_the_question(
+    registry: Registry, vectors: VectorStore, embedder: HashingEmbedder, settings: Settings
+) -> None:
+    """The circular is copied onto every chunk of its document, so at equal
+    weight it would match all of them identically and flood the candidate list
+    with a flat tie. It is weighted down for that reason."""
+    from app.ingest.metadata import DocumentIdentity
+
+    identity = DocumentIdentity(
+        doc_id="sanctions-2025", title="Sanctions Compliance Policy",
+        source_name="Sanctions.pdf", policy_family="sanctions", year=2025,
+        circular="A-INST-2025-01",
+    )
+    chunks = [
+        _chunk("sanctions-2025", 1, "Screening is performed against the sanctions list.",
+               title=identity.title, year=2025),
+        _chunk("sanctions-2025", 2, "Unrelated administrative arrangements apply.",
+               title=identity.title, year=2025),
+    ]
+    index_document(identity, chunks, sha256="hash-sanctions", pages=2,
+                   registry=registry, vectors=vectors, embedder=embedder)
+
+    hits = registry.search("screening sanctions list")
+    assert hits[0].chunk_id == chunks[0].chunk_id
+
+
+def test_the_migration_adds_identifiers_without_touching_the_vectors(
+    tmp_path: Path, settings: Settings
+) -> None:
+    """Re-embedding this corpus costs about 45 minutes of CPU, and a keyword
+    change has no business triggering it. The backfill comes from the documents
+    table, which already holds the circular."""
+    import sqlite3
+
+    from app.store.registry import SCHEMA_FTS
+
+    path = tmp_path / "old.sqlite"
+    old = sqlite3.connect(path, isolation_level=None)
+    old.executescript(
+        """
+        CREATE TABLE documents (doc_id TEXT PRIMARY KEY, title TEXT NOT NULL,
+            source_name TEXT NOT NULL, policy_family TEXT NOT NULL DEFAULT '',
+            year INTEGER, circular TEXT NOT NULL DEFAULT '', sha256 TEXT NOT NULL UNIQUE,
+            pages INTEGER NOT NULL DEFAULT 0, chunk_count INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'queued', error TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL, updated_at REAL NOT NULL);
+        CREATE TABLE chunks (rowid_ INTEGER PRIMARY KEY AUTOINCREMENT,
+            chunk_id TEXT NOT NULL UNIQUE, doc_id TEXT NOT NULL REFERENCES documents(doc_id)
+            ON DELETE CASCADE, section TEXT NOT NULL DEFAULT '',
+            section_number TEXT NOT NULL DEFAULT '', page INTEGER NOT NULL DEFAULT 0,
+            pages TEXT NOT NULL DEFAULT '[]', kind TEXT NOT NULL DEFAULT 'prose',
+            tokens INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL);
+        CREATE VIRTUAL TABLE chunks_fts USING fts5(text, section, content='chunks',
+            content_rowid='rowid_', tokenize='porter unicode61');
+        INSERT INTO documents VALUES ('d1','Sanctions Compliance Policy','S.pdf',
+            'sanctions',2025,'A-INST-2025-01','abc',1,1,'ready','',0,0);
+        INSERT INTO chunks (chunk_id, doc_id, section, text)
+            VALUES ('d1:0001','d1','1. Scope','Screening against the list.');
+        """
+    )
+    old.close()
+
+    migrated = Registry(path)
+    try:
+        # The rows survived — nothing was rebuilt from scratch.
+        assert migrated.count_chunks("d1") == 1
+        # ...and the identifier is now searchable, backfilled from `documents`.
+        assert [h.doc_id for h in migrated.search("A-INST-2025-01")] == ["d1"]
+        # Idempotent: opening it again must not re-run or double-index.
+        second = Registry(path)
+        assert [h.doc_id for h in second.search("A-INST-2025-01")] == ["d1"]
+        second.close()
+    finally:
+        migrated.close()
