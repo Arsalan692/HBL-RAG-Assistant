@@ -55,9 +55,17 @@ python -m app.cli verify --fast       # skip the prior-OCR comparison
 python -m app.cli chunk               # split parsed markdown into retrievable chunks
 
 python -m app.cli index               # embed chunks into Qdrant + the registry
+python -m app.cli index --reset       # drop the vectors first — required after changing embedder
 python -m app.cli index --embedder hashing   # no weights needed; dev only
 python -m app.cli documents           # what is indexed, and in what state
 python -m app.cli delete <doc_id> --yes      # remove it from everywhere
+
+python -m app.cli search "what is enhanced due diligence?"   # the whole retrieval pipeline
+python -m app.cli search "A-INST-2025-01" --text             # ...with passage snippets
+python -m app.cli search "CDD" --no-rerank                   # fusion order, to see what reranking changes
+
+python -m app.cli ask "what is enhanced due diligence?"      # ...and stream a cited answer
+python -m app.cli ask "..." --model qwen3:8b                 # override the generation model
 ```
 
 `pip install -e .` also puts an `hbl` script on PATH, so `hbl health` works from
@@ -296,10 +304,88 @@ is enough for a smoke test and nothing like enough to retrieve a policy clause.
 It warns on every load, because the risk is not somebody choosing it but
 somebody forgetting they did.
 
+And a warning is not enough on its own, because it scrolls past. The index
+itself records which embedder built it — see below.
+
+### Why the index carries a fingerprint
+
+Every embedder here returns `HBL_EMBEDDING_DIMENSION` floats. Qdrant therefore
+cannot tell hashed n-grams from bge-m3, and will accept both into the same
+collection without complaint. Nothing crashes; the scores just stop meaning
+anything, which is the hardest kind of fault to notice.
+
+So `index_meta` holds one row — `bge-m3:1024` — and `ensure_same_embedder()`
+checks it before any read or write. A mismatch is refused, with the fix in the
+message. The fingerprint names the *model*, never the route or the path, so
+`bge-m3` via Ollama and `D:/transfer/bge-m3` loaded in-process agree, and moving
+between machines does not demand a pointless re-index.
+
+One trap worth knowing: `VectorStore.drop()` deletes points rather than the
+collection, because in embedded mode `delete_collection` followed by a recreate
+under the same name **brings the old points back** — the data on disk is never
+purged. The obvious implementation silently does nothing.
+
+### Retrieval, and its two deliberate surprises
+
+`app/retrieve/` is dense top-30 + BM25 top-30 → RRF → cross-encoder → top-8.
+
+RRF fuses by *position*, never by score, because cosine similarity and BM25
+share no scale and normalising either one lets whichever has the wider spread on
+a given query dominate. With `k=60`, a chunk both retrievers rank second beats
+one only dense search ranked first — which is exactly the right answer here,
+where the best hits read on topic *and* contain the identifier asked about.
+
+Two behaviours look like bugs:
+
+- **Refusal.** Nothing clearing `min_rerank_score` returns zero passages, not
+  the least-bad one. Handing the model whatever ranked highest is how a grounded
+  system ends up citing a real document for a claim it does not make.
+- **Superseded vintages are kept.** AML/KYC and Sanctions each exist as a 2023
+  and a 2025 edition. The older one is marked and sorted last, never dropped:
+  someone may be asking about it, and where the editions differ that difference
+  is the answer. `hbl search` prints which families are doubled.
+
+### Generation, and what is enforced rather than requested
+
+`app/generate/` is the prompt plus the machinery around it. The failure it
+exists to prevent is not a wrong answer — it is a *plausible* one. A model asked
+about bank policy will produce fluent, correctly formatted, entirely invented
+compliance guidance, and a reader cannot tell that from the real thing.
+
+Two rules are code, not prompt text, because a prompt is a request:
+
+- **A refusal never reaches the model.** With no passages there is nothing to
+  ground an answer in, so `REFUSAL` is emitted directly. Asking a model to
+  decline is asking it to do the one thing it is worst at.
+- **Citations are checked against the passages that existed.** `[9]` when eight
+  were supplied is an invented source, and the frontend would render a pill
+  pointing at nothing. It is stripped from the stream and counted in
+  `invented_citations`.
+
+`_hold_partial_citation` exists because real streams break tokens anywhere,
+including between `[1` and `2]`. A per-delta regex matches neither half, so a
+valid citation goes unrecorded and an invented one survives. At most three
+characters are ever held back, which costs nothing measurable — buffering whole
+sentences would cost time-to-first-token, which this project treats as a
+requirement.
+
+The event order mirrors `StreamingState` in the frontend exactly:
+
+    step(searching) → step(reading) → sources → step(composing) → delta* → done
+
+**Sources before any text** is load-bearing, not tidiness: citation pills
+resolve at render time, so a delta containing `[2]` that arrives before source 2
+exists renders as a dead number.
+
+`unused_sources` is the diagnostic in the other direction. Consistently high
+means retrieval is handing over more than the answer needs, and prefill is the
+largest cost in time-to-first-token — `HBL_RETRIEVAL_RERANK_TOP_K` is the knob.
+
 ## Next
 
-**Hybrid search with reranking** (Phase 04) — dense top-30 and BM25 top-30
-fused with reciprocal rank fusion, reranked by a cross-encoder, cut to top-8.
-Both halves already exist; this joins them.
+**The API** (Phase 06) — FastAPI with SSE over `Answerer.stream`, whose events
+already match the frontend's `StreamingState`. Then `POST /documents` for upload,
+`GET /documents`, `DELETE /documents/{id}` and a page-image endpoint for citation
+previews, replacing the simulated stream in `frontend/src/App.tsx`.
 
 The full plan is `docs/build-plan.html`; open it in a browser.

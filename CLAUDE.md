@@ -15,12 +15,13 @@ and per-page routing is doing real work: `Whistleblowing Policy & Program-2024`
 alone splits 11 digital / 7 scanned, while `AFPAD 2025` is 26 scanned pages and
 `Global AML CFT CPF and KYC Policy - 2023` is 49 digital ones.
 
-**The frontend is built. Phase 00 and the Phase 01 router are done.**
-`backend/` holds configuration, logging, a headless CLI, the four provider
-protocols, and the per-page classifier. Nothing extracts, embeds, retrieves or
-answers yet. A session picking this up is here to run the **OCR bench-off** —
-the five comparison pages are already chosen, see below. Read
-`backend/README.md` first.
+**The frontend is built. Phases 00–05 are done.** The pipeline runs end to end
+from PDF to a cited answer: page routing, extraction, verification, chunking,
+indexing into Qdrant + FTS5, hybrid retrieval with reranking, and grounded
+generation with citations and a refusal path. `hbl ask "..."` works today.
+
+What is missing is the **API** (Phase 06) — FastAPI with SSE — so the frontend
+is still talking to mock data. Read `backend/README.md` first.
 
 The full ten-phase plan lives in `docs/build-plan.html` — open it in a browser
 rather than reading the raw HTML. It carries the reasoning behind everything
@@ -41,9 +42,18 @@ These are settled. Do not propose alternatives.
    install, never manual copying.
 
    The laptop *can* run the pipeline — page routing, extraction, embedding the
-   corpus (~30–60 min once), and OCR of a handful of pages. What it cannot do is
+   corpus (~50 min once), and OCR of a handful of pages. What it cannot do is
    bulk OCR or interactive-speed generation. Build and validate here; run the
    real ingest there.
+
+   **As of 2026-08-27 the laptop runs the real models, not stand-ins.** CPU
+   torch, sentence-transformers, bge-m3 and bge-reranker-v2-m3 are installed,
+   with both weight folders at `D:\transfer\` — outside the repository, so they
+   survive a re-clone. `backend/.env` here sets `HBL_DEVICE=cpu` explicitly:
+   `auto` would probe, find the AMD card unusable, and fall back anyway. Budget
+   ~3.2s per chunk to embed and a few seconds per query to rerank. Slow, but
+   real — retrieval quality can now be judged here rather than only on the GPU
+   box.
 3. **Never commit documents or anything derived from them.** Parsed markdown,
    rasterised page images and the vector index all contain the same confidential
    content as the PDFs. `.gitignore` already covers this; keep it that way.
@@ -85,10 +95,15 @@ npx tsc --noEmit         # type-check; there is no lint or test runner yet
 ./venv/Scripts/python.exe -m app.cli verify                # audit the extraction
 ./venv/Scripts/python.exe -m app.cli chunk                 # 901 chunks with breadcrumbs + vintage
 ./venv/Scripts/python.exe -m app.cli index                 # embed into Qdrant + registry (needs bge-m3)
+./venv/Scripts/python.exe -m app.cli index --reset         # drop the vectors first — after changing embedder
 ./venv/Scripts/python.exe -m app.cli index --embedder hashing   # dev stand-in, no weights
+./venv/Scripts/python.exe -m app.cli search "what is EDD?"      # dense + BM25 → RRF → rerank → top 8
+./venv/Scripts/python.exe -m app.cli search "CDD" --text --no-rerank  # show snippets / fusion order only
+./venv/Scripts/python.exe -m app.cli ask "what is EDD?"         # ...and stream a cited answer
+./venv/Scripts/python.exe -m app.cli ask "..." --model qwen3:8b # override the generation model
 ./venv/Scripts/python.exe -m app.cli documents             # what is indexed
 ./venv/Scripts/python.exe -m app.cli delete <doc_id> --yes # remove from both stores and disk
-./venv/Scripts/python.exe -m pytest backend        # 163 tests, no models, corpus or engines needed
+./venv/Scripts/python.exe -m pytest backend        # 207 tests, no models, corpus or engines needed
 
 python brand/make_icons.py                          # regenerate app icons
 ```
@@ -147,9 +162,22 @@ Three subsystems over shared storage:
   is one human-readable markdown file per document plus per-page provenance —
   that file is the quality gate. Extraction itself is not written yet.
 - **Retrieval** — dense top-30 + BM25 top-30 → RRF fusion → cross-encoder rerank →
-  top-8. Hybrid is not optional: the corpus is full of exact identifiers
-  (`A-INST-2025-01`, CDD, EDD, STR, PEP, thresholds) that dense search alone misses.
+  top-8. **Built**, in `app/retrieve/`. Hybrid is not optional: the corpus is full
+  of exact identifiers (`A-INST-2025-01`, CDD, EDD, STR, PEP, thresholds) that
+  dense search alone misses. Two behaviours look like bugs and are not: nothing
+  clearing `min_rerank_score` returns *no* passages rather than the least-bad one,
+  and a superseded vintage is **marked and ranked below** its newer sibling rather
+  than dropped — where the two editions disagree, that disagreement is the answer.
 - **Generation** — strict grounding, citations, refusal when retrieval is thin.
+  **Built**, in `app/generate/`. Two things are enforced in code rather than
+  asked for in the prompt, because a prompt is a request: a refusal **never
+  reaches the model** (with no passages there is nothing to ground an answer in,
+  and asking a model to decline is asking it to do what it is worst at), and
+  citations are **checked against the passages that existed** — a `[9]` when
+  eight were supplied is stripped from the stream and counted in
+  `invented_citations`. `unused_sources` is the matching diagnostic in the other
+  direction: consistently high means retrieval is handing over more than the
+  answer needs, and prefill is the biggest cost in time-to-first-token.
 
 ### What the router learned from the real corpus
 
@@ -174,6 +202,53 @@ Three things that were not obvious and are easy to reintroduce:
 There are effectively **no HYBRID pages** in this corpus: of 203 pages with a
 partial raster, 193 are the header logo at 1–2% coverage. The branch stays for
 uploaded documents, but do not expect it to fire on what is there today.
+
+### What verifying retrieval on the real corpus found
+
+Two defects that every unit test passed through, caught only by running real
+queries against the real index (2026-08-27):
+
+1. **`A-INST-2025-01` was unfindable.** The circular number is printed on the
+   covering instruction's front page and appears in *no clause of any document*.
+   It reached the document title and stopped, so FTS5 — the half of retrieval
+   that exists to catch exact identifiers — returned **zero** hits for the
+   corpus's most quotable one, and dense search answered with an unrelated chunk
+   that happened to be a "Standard Template of Circular". Fixed with a
+   `chunks.identifiers` column carrying the circular onto every chunk of its
+   document, weighted `0.25` in `bm25()` so that repeating it across 107 chunks
+   cannot flood the candidate list with a flat tie.
+
+2. **Reranking then threw the fix away.** The cross-encoder only ever saw
+   `candidate.text`, which contains neither the identifier nor the breadcrumb —
+   so it scored all 179 correctly-retrieved chunks below `min_rerank_score` and
+   kept the wrong document anyway. Passages are now reranked as
+   `title · circular · section\ntext`. The identifier query went from **0.388 on
+   the wrong document to 0.993 on the right one**, with no regression on
+   paraphrase queries.
+
+The general lesson, and it is the same one the OCR bench-off taught: a stage
+that *succeeds* and is wrong is invisible to aggregate numbers. Both of these
+had green unit tests either side of them.
+
+### The index records which embedder built it
+
+Every embedder here emits `HBL_EMBEDDING_DIMENSION` floats, so Qdrant cannot
+tell the `hashing` dev stand-in from bge-m3 and will accept both into one
+collection. Nothing crashes; retrieval just stops meaning anything. So the
+registry carries a one-row `index_meta` table holding a fingerprint like
+`bge-m3:1024`, `ensure_same_embedder()` checks it before any read or write, and
+a mismatch is a refusal naming the fix (`hbl index --reset`).
+
+The fingerprint is the *model*, never the route or the path — `bge-m3` through
+Ollama, `D:/transfer/bge-m3` on the laptop and `storage/models/bge-m3` on the
+workstation are one vector space, and switching between them must not force a
+re-index.
+
+**`VectorStore.drop()` deletes points, not the collection.** In embedded mode
+`delete_collection` removes it from `get_collections()` and then recreating the
+same name *brings every old point back* — the on-disk data is never purged. That
+reads as success and leaves the stale vectors in place, which is the exact
+failure the drop exists to prevent. There is a test.
 
 **Corpus hazard to handle explicitly:** several policies exist in more than one
 vintage (AML/KYC and Sanctions each appear as 2023 and 2025), plus byte-identical
@@ -330,6 +405,12 @@ not tokens per second.
 - **`HBL_LLM_THINK=false` is the default and must stay off.** Qwen3 emits a
   `<think>` block before answering — hundreds of unseen tokens ahead of the first
   visible word. Largest single win, costs nothing.
+- **A cold first request looks like a crash.** `HBL_LLM_TIMEOUT_S` (180s) covers
+  a *single read*, and the first read is the expensive one: Ollama loads the
+  weights and prefills the whole prompt before emitting a token. On the CPU
+  laptop that passes 180s and raises, while the identical request takes seconds
+  once the model is resident. `ollama run qwen3:8b ""` once warms it; the error
+  now says so rather than surfacing a bare `TimeoutError`.
 - **Both `qwen3:8b` and `qwen3:14b` are being carried across** to be benched
   against each other. ~35–45 tok/s vs ~20–25. Expect 8B to win; the task is
   grounded summarising, not open-ended reasoning. Don't assume 14B.
@@ -396,6 +477,9 @@ reading order**. Re-reading the raster fixed all three. Keep
 ```
 backend/      config, logging, CLI, provider protocols, per-page router. See its README.
               app/ingest/     signals (measure) → router (decide) → render → bench (pick) → benchmark (run)
+              app/store/      registry.py (SQLite + FTS5) · vectors.py (Qdrant) · index.py (write/delete)
+              app/retrieve/   fuse.py (RRF) → search.py (the pipeline, refusal, vintages)
+              app/generate/   prompt.py (grounding rules) → answer.py (events, citation audit)
               app/providers/ocr/  vlm.py (Ollama vision, real) + docling.py (adapter, needs staging)
 frontend/     the app — built and working, mock data
 brand/        logo source + make_icons.py (regenerates all app icons)
