@@ -54,12 +54,18 @@ export interface AssistantMessage {
 
 export type Message = UserMessage | AssistantMessage;
 
-export interface ChatSummary {
+/**
+ * One conversation in the sidebar.
+ *
+ * Session-scoped. History persistence and sign-in are deliberately deferred
+ * until the core works, so these live in memory and are gone on reload — which
+ * is why there is no "Yesterday" grouping: there is no yesterday.
+ */
+export interface Conversation {
   id: string;
+  /** The question that opened it. The only name it ever gets. */
   title: string;
-  pinned?: boolean;
-  /** Which heading the row sits under in the sidebar. */
-  group: "Today" | "Yesterday" | "Previous 7 days";
+  messages: Message[];
 }
 
 /** Which citation is currently open in the source panel. */

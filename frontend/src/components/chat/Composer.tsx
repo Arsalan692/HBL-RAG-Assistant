@@ -1,37 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ArrowUp, Database, Mic, Paperclip, Square, Upload } from "lucide-react";
+import { ArrowUp, Paperclip, Square, Upload } from "lucide-react";
 import { IconButton } from "@/components/common/IconButton";
 import { cn } from "@/lib/utils";
 import { MENU_SURFACE, menuItemCls } from "@/lib/variants";
 
 const MAX_HEIGHT = 200;
 
-/** On mobile the mic and knowledge-base controls fold into the attach menu. */
-function AttachMenu({ compact }: { compact: boolean }) {
+/** Opens the document library, which is where adding a PDF actually happens. */
+function AttachMenu({ onOpenDocuments }: { onOpenDocuments: () => void }) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <IconButton label="Attach" size="sm" tooltip={false}>
+        <IconButton label="Add a document" size="sm" tooltip={false}>
           <Paperclip size={15} />
         </IconButton>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="start" side="top" sideOffset={8} className={cn(MENU_SURFACE, "w-56")}>
-          <DropdownMenu.Item className={menuItemCls()}>
-            <Upload size={14} className="text-hbl-tertiary" /> Upload a document
+          <DropdownMenu.Item className={menuItemCls()} onSelect={onOpenDocuments}>
+            <Upload size={14} className="text-hbl-tertiary" /> Add a document
           </DropdownMenu.Item>
-          {compact && (
-            <>
-              <DropdownMenu.Item className={menuItemCls()}>
-                <Mic size={14} className="text-hbl-tertiary" /> Dictate
-              </DropdownMenu.Item>
-              <DropdownMenu.Separator className="my-1 h-px bg-border" />
-              <DropdownMenu.Item className={menuItemCls()}>
-                <Database size={14} className="text-hbl-green" /> Retail Banking SOPs
-              </DropdownMenu.Item>
-            </>
-          )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
@@ -45,6 +34,7 @@ export function Composer({
   streaming = false,
   onStop,
   isMobile = false,
+  onOpenDocuments,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -52,6 +42,7 @@ export function Composer({
   streaming?: boolean;
   onStop?: () => void;
   isMobile?: boolean;
+  onOpenDocuments: () => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [focused, setFocused] = useState(false);
@@ -110,28 +101,8 @@ export function Composer({
 
             <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
               <div className="flex min-w-0 items-center gap-1">
-                <AttachMenu compact={isMobile} />
+                <AttachMenu onOpenDocuments={onOpenDocuments} />
 
-                {!isMobile && (
-                  <>
-                    <IconButton label="Dictate" size="sm">
-                      <Mic size={15} />
-                    </IconButton>
-                    <button
-                      type="button"
-                      className={cn(
-                        "ml-1 inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border",
-                        "bg-muted px-2.5 py-1 text-xs font-medium text-hbl-secondary outline-none",
-                        "transition-all duration-180 ease-spring active:scale-97",
-                        "hover:border-hbl-green/40 hover:bg-accent hover:text-accent-foreground",
-                        "focus-visible:ring-3 focus-visible:ring-[var(--hbl-green-ring)]",
-                      )}
-                    >
-                      <Database size={11} className="shrink-0" />
-                      <span className="truncate">Retail Banking SOPs</span>
-                    </button>
-                  </>
-                )}
               </div>
 
               {streaming ? (

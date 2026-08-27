@@ -8,6 +8,7 @@ import {
   useSettings,
   type ThemeMode,
 } from "@/components/settings/SettingsProvider";
+import { listDocuments } from "@/lib/api";
 import { cn, shortcutLabel } from "@/lib/utils";
 
 type SectionId = "appearance" | "knowledge" | "privacy" | "shortcuts";
@@ -137,58 +138,83 @@ function AppearancePane() {
   );
 }
 
-function KnowledgePane() {
-  const bases = [
-    { name: "Retail Banking SOPs", docs: 34, updated: "Updated today" },
-    { name: "AML & Compliance", docs: 22, updated: "Updated 3 days ago" },
-    { name: "Risk & Governance", docs: 16, updated: "Updated 2 weeks ago" },
-  ];
+/**
+ * There is one corpus, so there is nothing to choose between.
+ *
+ * This pane used to list three knowledge bases with document counts — "Retail
+ * Banking SOPs · 34 documents", and two more — none of which existed. The same
+ * fiction appeared as a chip in the header and the composer, implying a
+ * selector the product has never had.
+ */
+function KnowledgePane({ onOpenDocuments }: { onOpenDocuments: () => void }) {
+  const [count, setCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    listDocuments()
+      .then((docs) => setCount(docs.length))
+      .catch(() => setCount(null));
+  }, []);
+
   return (
-    <div className="flex flex-col gap-2">
-      {bases.map((b) => (
-        <div
-          key={b.name}
-          className="flex items-center gap-3 rounded-xl border border-border bg-card p-3"
-        >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent">
-            <Database size={15} className="text-accent-foreground" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium leading-5 text-hbl-primary">{b.name}</p>
-            <p className="truncate text-xs leading-4 text-hbl-tertiary">
-              {b.docs} documents · {b.updated}
-            </p>
-          </div>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent">
+          <Database size={15} className="text-accent-foreground" />
         </div>
-      ))}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium leading-5 text-hbl-primary">
+            {count === null ? "Documents" : `${count} document${count === 1 ? "" : "s"}`}
+          </p>
+          <p className="truncate text-xs leading-4 text-hbl-tertiary">
+            Every answer comes from these and nothing else
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onOpenDocuments}
+        className={cn(
+          "self-start rounded-lg border border-border px-3 py-1.5 text-[13px] text-hbl-secondary outline-none",
+          "transition-all duration-180 ease-spring hover:bg-accent",
+          "focus-visible:ring-3 focus-visible:ring-[var(--hbl-green-ring)]",
+        )}
+      >
+        Manage documents
+      </button>
     </div>
   );
 }
 
+/**
+ * What actually happens to the data, which is not what this pane used to say.
+ *
+ * It previously offered a "Store chat history" toggle described as
+ * "Conversations are kept on the bank's own servers", a 90-day retention
+ * period, and a "Clear all conversations" button. None of it was real. A false
+ * assurance about where confidential questions are stored is the worst thing
+ * on this screen to leave as mock text, and the truth is a better answer
+ * anyway: nothing is stored and nothing leaves the machine.
+ */
 function PrivacyPane() {
   return (
     <div>
-      <Field label="Store chat history" hint="Conversations are kept on the bank's own servers.">
-        <Toggle on onChange={() => {}} label="Store chat history" />
-      </Field>
-      <Field label="Retention period" hint="How long conversations are kept before deletion.">
-        <span className="text-sm text-hbl-secondary">90 days</span>
+      <Field
+        label="Where the models run"
+        hint="Every model — reading, search and the answer itself — runs on this machine. No question or document is ever sent to an outside service."
+      >
+        <span className="text-sm font-medium text-hbl-green">On this machine</span>
       </Field>
       <Field
-        label="Clear all conversations"
-        hint="Permanently deletes every conversation on this account."
+        label="Chat history"
+        hint="Conversations live in this browser tab only. Closing or reloading the app discards them; nothing is written to disk."
       >
-        <button
-          type="button"
-          className={cn(
-            "rounded-lg border border-destructive/40 px-3 py-1.5 text-[13px] font-medium text-destructive",
-            "outline-none transition-all duration-180 ease-spring active:scale-97",
-            "hover:bg-destructive hover:text-destructive-foreground",
-            "focus-visible:ring-3 focus-visible:ring-[var(--hbl-green-ring)]",
-          )}
-        >
-          Clear
-        </button>
+        <span className="text-sm text-hbl-secondary">Not stored</span>
+      </Field>
+      <Field
+        label="Documents"
+        hint="The PDFs, the text read from them and the search index all stay in this installation. Removing a document deletes all three."
+      >
+        <span className="text-sm text-hbl-secondary">Kept locally</span>
       </Field>
     </div>
   );
@@ -222,7 +248,13 @@ function ShortcutsPane() {
   );
 }
 
-export function SettingsModal({ onClose }: { onClose: () => void }) {
+export function SettingsModal({
+  onClose,
+  onOpenDocuments,
+}: {
+  onClose: () => void;
+  onOpenDocuments: () => void;
+}) {
   const [section, setSection] = useState<SectionId>("appearance");
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -236,7 +268,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
   const panes: Record<SectionId, React.ReactNode> = {
     appearance: <AppearancePane />,
-    knowledge: <KnowledgePane />,
+    knowledge: <KnowledgePane onOpenDocuments={onOpenDocuments} />,
     privacy: <PrivacyPane />,
     shortcuts: <ShortcutsPane />,
   };

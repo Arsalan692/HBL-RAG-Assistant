@@ -8,12 +8,20 @@
 # =============================================================================
 
 # --- Source documents and anything derived from them -------------------------
-data/
-storage/
+# `/data/` and `/storage/` are anchored to the repository root because they name
+# two specific directories. Unanchored, `data/` also matched
+# `frontend/src/data/` and kept a source file the frontend imports out of the
+# repository entirely — a fresh clone could not build the interface.
+/data/
+/storage/
 *.pdf
 *.PDF
 
-# Parsed output, rasterised pages, OCR intermediates
+# These stay UNANCHORED, deliberately. They name *content* rather than a
+# location: extracted text and rasterised pages carry exactly what the PDFs do,
+# and an ingest run with different paths has already produced a `parsed/` at the
+# repository root once. Anchoring these would have committed 38 files of
+# confidential policy text.
 parsed/
 page_images/
 *.ocr.json

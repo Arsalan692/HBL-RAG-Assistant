@@ -1,4 +1,4 @@
-import { Database, Menu, Moon, PanelLeft, PanelLeftClose, Plus, Share2, Sun } from "lucide-react";
+import { Menu, Moon, PanelLeft, PanelLeftClose, Plus, Sun } from "lucide-react";
 import { IconButton } from "@/components/common/IconButton";
 import { useSettings } from "@/components/settings/SettingsProvider";
 
@@ -43,15 +43,7 @@ export function TopBar({
         </IconButton>
       ) : (
         <>
-          <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground sm:inline-flex">
-            <Database size={11} />
-            Retail Banking SOPs
-          </span>
-
           <div className="flex shrink-0 items-center gap-0.5">
-            <IconButton label="Share conversation">
-              <Share2 size={16} />
-            </IconButton>
             <IconButton
               label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               onClick={toggleTheme}

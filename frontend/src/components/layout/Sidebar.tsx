@@ -1,28 +1,26 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
-  Archive,
   ChevronRight,
-  Clock,
   Database,
   MoreHorizontal,
-  Pencil,
-  Pin,
   Plus,
   Search,
   Settings,
   Trash2,
+  User,
 } from "lucide-react";
 import { HblLogo, HblMark } from "@/components/common/HblMark";
 import { IconButton } from "@/components/common/IconButton";
-import { CHAT_HISTORY } from "@/data/mock";
 import { cn, shortcutLabel } from "@/lib/utils";
 import { MENU_SURFACE, menuItemCls, primaryButtonCls, rowCls } from "@/lib/variants";
-import type { ChatSummary } from "@/types";
+import type { Conversation } from "@/types";
 
-const GROUP_ORDER: ChatSummary["group"][] = ["Today", "Yesterday", "Previous 7 days"];
 
-function ChatRowMenu() {
+/** Only Delete, because only Delete does anything.
+    Pin, Rename and Archive were drawn for the mockup and never implemented;
+    a menu item that silently does nothing is worse than an absent one. */
+function ChatRowMenu({ onDelete }: { onDelete: () => void }) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -42,17 +40,7 @@ function ChatRowMenu() {
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="end" sideOffset={4} className={cn(MENU_SURFACE, "w-44")}>
-          <DropdownMenu.Item className={menuItemCls()}>
-            <Pin size={14} className="text-hbl-tertiary" /> Pin conversation
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItemCls()}>
-            <Pencil size={14} className="text-hbl-tertiary" /> Rename
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItemCls()}>
-            <Archive size={14} className="text-hbl-tertiary" /> Archive
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator className="my-1 h-px bg-border" />
-          <DropdownMenu.Item className={menuItemCls(undefined, true)}>
+          <DropdownMenu.Item className={menuItemCls(undefined, true)} onSelect={onDelete}>
             <Trash2 size={14} /> Delete
           </DropdownMenu.Item>
         </DropdownMenu.Content>
@@ -65,10 +53,12 @@ function ChatRow({
   chat,
   active,
   onSelect,
+  onDelete,
 }: {
-  chat: ChatSummary;
+  chat: Conversation;
   active: boolean;
   onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
   return (
     <div
@@ -84,7 +74,7 @@ function ChatRow({
       className={cn(rowCls(active), "cursor-pointer")}
     >
       <span className="min-w-0 flex-1 truncate leading-5">{chat.title}</span>
-      <ChatRowMenu />
+      <ChatRowMenu onDelete={() => onDelete(chat.id)} />
     </div>
   );
 }
@@ -105,27 +95,29 @@ function GroupHeading({ children, icon }: { children: React.ReactNode; icon?: Re
 /* -------------------------------------------------------------------------- */
 
 function ExpandedSidebar({
+  conversations,
   activeChatId,
   onSelectChat,
+  onDeleteChat,
   onNewChat,
   onOpenSettings,
   onOpenDocuments,
   documentCount,
 }: {
+  conversations: Conversation[];
   activeChatId: string | null;
   onSelectChat: (id: string) => void;
+  onDeleteChat: (id: string) => void;
   onNewChat: () => void;
   onOpenSettings: () => void;
   onOpenDocuments: () => void;
   documentCount: number | null;
 }) {
   const searchHint = useMemo(() => shortcutLabel("K"), []);
-
-  const pinned = CHAT_HISTORY.filter((c) => c.pinned);
-  const grouped = GROUP_ORDER.map((group) => ({
-    group,
-    chats: CHAT_HISTORY.filter((c) => !c.pinned && c.group === group),
-  })).filter((g) => g.chats.length > 0);
+  const [query, setQuery] = useState("");
+  const shown = query.trim()
+    ? conversations.filter((c) => c.title.toLowerCase().includes(query.trim().toLowerCase()))
+    : conversations;
 
   return (
     <>
@@ -153,6 +145,8 @@ function ExpandedSidebar({
           <input
             type="text"
             placeholder="Search chats"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
             className="min-w-0 flex-1 bg-transparent text-sm leading-5 text-hbl-primary outline-none placeholder:text-hbl-tertiary"
           />
           <kbd className="shrink-0 rounded border border-border bg-card px-1.5 py-0.5 font-sans text-[10px] font-medium leading-4 text-hbl-tertiary">
@@ -162,39 +156,31 @@ function ExpandedSidebar({
       </div>
 
       <nav className="hbl-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-2">
-        {pinned.length > 0 && (
+        {shown.length === 0 ? (
+          // The truthful empty state. History is not persisted yet, so a fresh
+          // load genuinely has none — and a list of plausible past chats would
+          // misrepresent what the product does.
+          <p className="px-2 pt-2 text-[12.5px] leading-5 text-hbl-tertiary">
+            {query.trim()
+              ? `Nothing in this session matches "${query.trim()}".`
+              : "Your questions from this session appear here. They are not saved when you close the app."}
+          </p>
+        ) : (
           <section className="mb-3">
-            <GroupHeading icon={<Pin size={11} className="text-hbl-tertiary" />}>
-              Pinned
-            </GroupHeading>
+            <GroupHeading>This session</GroupHeading>
             <div className="flex flex-col gap-0.5">
-              {pinned.map((chat) => (
+              {shown.map((chat) => (
                 <ChatRow
                   key={chat.id}
                   chat={chat}
                   active={chat.id === activeChatId}
                   onSelect={onSelectChat}
+                  onDelete={onDeleteChat}
                 />
               ))}
             </div>
           </section>
         )}
-
-        {grouped.map(({ group, chats }) => (
-          <section key={group} className="mb-3">
-            <GroupHeading>{group}</GroupHeading>
-            <div className="flex flex-col gap-0.5">
-              {chats.map((chat) => (
-                <ChatRow
-                  key={chat.id}
-                  chat={chat}
-                  active={chat.id === activeChatId}
-                  onSelect={onSelectChat}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
       </nav>
 
       <div className="border-t border-border p-3">
@@ -213,7 +199,7 @@ function ExpandedSidebar({
           <Database size={14} className="shrink-0 text-hbl-green" />
           <div className="min-w-0 flex-1">
             <p className="text-[10px] uppercase tracking-[0.06em] text-hbl-tertiary">
-              Knowledge base
+              Library
             </p>
             <p className="truncate text-[13px] font-medium leading-4 text-hbl-primary">
               {documentCount === null
@@ -224,17 +210,20 @@ function ExpandedSidebar({
           <ChevronRight size={14} className="shrink-0 text-hbl-tertiary" />
         </button>
 
+        {/* No account, because there is no sign-in yet — it was deliberately
+            deferred until the core worked. A named user with a department
+            would imply the app knows who is asking, and it does not. */}
         <div className="mt-2 flex items-center gap-2.5 rounded-lg px-1 py-1.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-[#E4EBE7] text-xs font-semibold text-hbl-secondary dark:bg-[#252B28]">
-            AR
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-[#E4EBE7] text-hbl-tertiary dark:bg-[#252B28]">
+            <User size={15} />
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13px] font-medium leading-4 text-hbl-primary">
-              Arsalan Shafiq
+              Not signed in
             </p>
-            <span className="mt-0.5 inline-flex rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-3 text-hbl-secondary">
-              Branch Ops
-            </span>
+            <p className="truncate text-[11px] leading-4 text-hbl-tertiary">
+              Sign-in is not enabled yet
+            </p>
           </div>
           <IconButton label="Settings" size="sm" onClick={onOpenSettings}>
             <Settings size={15} />
@@ -275,14 +264,8 @@ function CollapsedSidebar({
       </div>
 
       <nav className="flex flex-1 flex-col items-center gap-1 px-3">
-        <IconButton label={`Search chats · ${shortcutLabel("K")}`}>
-          <Search size={17} />
-        </IconButton>
-        <IconButton label="Pinned">
-          <Pin size={17} />
-        </IconButton>
-        <IconButton label="History">
-          <Clock size={17} />
+        <IconButton label="Documents" onClick={onOpenDocuments}>
+          <Database size={17} className="text-hbl-green" />
         </IconButton>
       </nav>
 
@@ -304,8 +287,10 @@ function CollapsedSidebar({
 /* -------------------------------------------------------------------------- */
 
 export interface SidebarProps {
+  conversations: Conversation[];
   activeChatId: string | null;
   onSelectChat: (id: string) => void;
+  onDeleteChat: (id: string) => void;
   onNewChat: () => void;
   onOpenSettings: () => void;
   onOpenDocuments: () => void;

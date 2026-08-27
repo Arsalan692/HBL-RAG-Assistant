@@ -9,10 +9,14 @@ import type { RetrievalStep } from "@/components/chat/RetrievalStepper";
 import { DocumentsModal } from "@/components/documents/DocumentsModal";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { SourcePanel } from "@/components/sources/SourcePanel";
-import { THREAD } from "@/data/mock";
-import { askQuestion, listDocuments, type AnswerAudit } from "@/lib/api";
+import {
+  askQuestion,
+  listDocuments,
+  type AnswerAudit,
+  type DocumentSummary,
+} from "@/lib/api";
 import { useIsMobile } from "@/lib/useMediaQuery";
-import type { ActiveCitation, AssistantMessage, Message, Source } from "@/types";
+import type { ActiveCitation, AssistantMessage, Conversation, Message, Source } from "@/types";
 
 /**
  * A note the reader needs that the answer itself did not give them.
@@ -40,6 +44,15 @@ function auditNote(audit: AnswerAudit): string {
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
+  /**
+   * Conversations from this session only.
+   *
+   * Nothing is persisted — history and sign-in are deliberately deferred until
+   * the core works. An empty sidebar on first load is therefore the truth, and
+   * a list of plausible past chats would be a lie about what the product
+   * currently does.
+   */
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [streaming, setStreaming] = useState<StreamingState | null>(null);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeCitation, setActiveCitation] = useState<ActiveCitation | null>(null);
@@ -48,13 +61,20 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [documentsOpen, setDocumentsOpen] = useState(false);
-  /** null until the backend has answered — the sidebar says "Documents" rather
-      than "0 documents", which would read as an empty library. */
-  const [documentCount, setDocumentCount] = useState<number | null>(null);
+  /**
+   * The indexed library. null until the backend answers, so the sidebar can say
+   * "Documents" rather than "0 documents" — which would claim an empty library
+   * when the truth is that nobody has asked yet.
+   */
+  const [documents, setDocuments] = useState<DocumentSummary[] | null>(null);
 
   const isMobile = useIsMobile();
   /** Aborts the in-flight answer — on Stop, and on unmount. */
   const inFlight = useRef<AbortController | null>(null);
+
+  /** Which conversation the next answer belongs to. A ref, because `commit`
+      runs from a stream callback that closed over an older render. */
+  const currentChat = useRef<string>("");
 
   const abort = useCallback(() => {
     inFlight.current?.abort();
@@ -66,13 +86,18 @@ export default function App() {
   // Refreshed when the library closes, because that is when it may have
   // changed. Failure is silent: the count is a convenience, and the modal
   // reports a backend that is down far better than a sidebar label can.
-  const refreshCount = useCallback(() => {
-    listDocuments()
-      .then((docs) => setDocumentCount(docs.length))
-      .catch(() => setDocumentCount(null));
+  const openDocuments = useCallback(() => {
+    setDocumentsOpen(true);
+    setDrawerOpen(false);
   }, []);
 
-  useEffect(refreshCount, [refreshCount]);
+  const refreshDocuments = useCallback(() => {
+    listDocuments()
+      .then(setDocuments)
+      .catch(() => setDocuments(null));
+  }, []);
+
+  useEffect(refreshDocuments, [refreshDocuments]);
 
   const openSource =
     activeCitation === null
@@ -82,14 +107,28 @@ export default function App() {
           .find((m) => m.id === activeCitation.messageId)
           ?.sources.find((s) => s.id === activeCitation.sourceId) ?? null);
 
-  /** Commits a finished (or stopped) answer into the thread. */
+  /** Commits a finished (or stopped) answer into the thread and its conversation. */
   const commit = useCallback((question: string, content: string, sources: Source[]) => {
     const stamp = Date.now();
-    setMessages((prev) => [
-      ...prev,
+    const turn: Message[] = [
       { id: `u-${stamp}`, role: "user", content: question },
       { id: `a-${stamp}`, role: "assistant", content, sources },
-    ]);
+    ];
+
+    setMessages((prev) => {
+      const next = [...prev, ...turn];
+      setConversations((all) => {
+        const id = currentChat.current;
+        const existing = all.find((c) => c.id === id);
+        if (existing) {
+          return all.map((c) => (c.id === id ? { ...c, messages: next } : c));
+        }
+        // Titled from the question that opened it, which is what the sidebar
+        // shows and the only name the conversation will ever have.
+        return [{ id, title: question, messages: next }, ...all];
+      });
+      return next;
+    });
     setStreaming(null);
   }, []);
 
@@ -114,7 +153,8 @@ export default function App() {
 
       setDraft("");
       setActiveCitation(null);
-      setActiveChatId((id) => id ?? "c1");
+      if (currentChat.current === "") currentChat.current = `chat-${Date.now()}`;
+      setActiveChatId(currentChat.current);
       setStreaming({
         question: trimmed,
         step: "searching",
@@ -178,16 +218,24 @@ export default function App() {
   function loadConversation(id: string) {
     abort();
     setStreaming(null);
-    setMessages(THREAD);
+    currentChat.current = id;
+    setMessages(conversations.find((c) => c.id === id)?.messages ?? []);
     setActiveChatId(id);
     setActiveCitation(null);
     setDraft("");
     setDrawerOpen(false);
   }
 
+  /** Forgets a conversation. Nothing is persisted, so this is the whole of it. */
+  function deleteConversation(id: string) {
+    setConversations((all) => all.filter((c) => c.id !== id));
+    if (currentChat.current === id) newChat();
+  }
+
   function newChat() {
     abort();
     setStreaming(null);
+    currentChat.current = "";
     setMessages([]);
     setActiveChatId(null);
     setActiveCitation(null);
@@ -223,18 +271,17 @@ export default function App() {
   const title = firstQuestion ?? streaming?.question ?? "New conversation";
 
   const sidebarProps = {
+    conversations,
     activeChatId,
     onSelectChat: loadConversation,
+    onDeleteChat: deleteConversation,
     onNewChat: newChat,
     onOpenSettings: () => {
       setSettingsOpen(true);
       setDrawerOpen(false);
     },
-    onOpenDocuments: () => {
-      setDocumentsOpen(true);
-      setDrawerOpen(false);
-    },
-    documentCount,
+    onOpenDocuments: openDocuments,
+    documentCount: documents?.length ?? null,
   };
 
   return (
@@ -278,7 +325,11 @@ export default function App() {
                     />
                   </div>
                 ) : (
-                  <EmptyState onPick={send} />
+                  <EmptyState
+                    onPick={send}
+                    documents={documents}
+                    onOpenDocuments={openDocuments}
+                  />
                 )}
               </div>
 
@@ -289,6 +340,7 @@ export default function App() {
                 streaming={streaming !== null}
                 onStop={stop}
                 isMobile={isMobile}
+                onOpenDocuments={openDocuments}
               />
             </div>
           </div>
@@ -314,12 +366,20 @@ export default function App() {
           <DocumentsModal
             onClose={() => {
               setDocumentsOpen(false);
-              refreshCount();
+              refreshDocuments();
             }}
           />
         )}
 
-        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+        {settingsOpen && (
+          <SettingsModal
+            onClose={() => setSettingsOpen(false)}
+            onOpenDocuments={() => {
+              setSettingsOpen(false);
+              openDocuments();
+            }}
+          />
+        )}
       </div>
     </TooltipPrimitive.Provider>
   );
