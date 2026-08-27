@@ -26,6 +26,7 @@ streams and counted, so the fault is visible rather than silent.
 from __future__ import annotations
 
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Iterator, Literal, Sequence
@@ -107,6 +108,11 @@ class AnswerResult:
     invented_citations: list[int] = field(default_factory=list)
     #: Passages the answer never cited. High counts mean retrieval is too wide.
     unused_sources: list[int] = field(default_factory=list)
+    #: Cited passages that came from a replaced edition. The prompt asks the
+    #: model to say so in the sentence, but a rule the model may or may not
+    #: follow is not a safeguard — a reader acting on a superseded clause is
+    #: the specific harm here, so it is measured rather than trusted.
+    superseded_citations: list[int] = field(default_factory=list)
     retrieval_seconds: float = 0.0
     seconds: float = 0.0
 
@@ -126,6 +132,13 @@ class Answerer:
         started = time.perf_counter()
         result = into if into is not None else AnswerResult(question=question)
         result.question = question
+
+        # The weights the model needs do not depend on the question, so loading
+        # them does not have to wait for retrieval — and retrieval is not quick.
+        # On CPU it runs 90-130s while the LLM sits idle, after which a cold
+        # 4.9 GB load has twice pushed generation past its timeout. Overlapping
+        # the two is free, and time-to-first-token is a stated requirement.
+        self._start_warming()
 
         yield Event(kind="step", value="searching")
         retrieval = self._retriever.search(question)
@@ -147,6 +160,20 @@ class Answerer:
         result.sources = list(sources)
 
         yield Event(kind="step", value="reading")
+
+        # Reranking is over, and the cross-encoder's ~2.3 GB is now dead weight
+        # held through the longest part of the query. On CPU that is not a
+        # micro-optimisation: bge-m3 (2.3 GB) plus the reranker (2.3 GB) plus a
+        # resident qwen3:8b (4.9 GB) exhausted a 16 GB laptop mid-load and
+        # segfaulted — no exception, no message. The same budget is tight on
+        # the 16 GB card, where all three are documented as barely fitting.
+        #
+        # Kept resident on CUDA, where reloading costs real time per query and
+        # the design accounts for it; released on CPU, where a query is slow
+        # enough that a few seconds of reload is invisible beside a crash.
+        if self._settings.runtime.device == "cpu":
+            self._retriever.release_reranker()
+
         # Before any text: a `[2]` delta arriving before source 2 exists renders
         # as a pill pointing at nothing.
         yield Event(
@@ -186,6 +213,9 @@ class Answerer:
         result.text = "".join(pieces)
         result.invented_citations = sorted(invented)
         result.unused_sources = sorted(set(range(1, len(sources) + 1)) - cited)
+        result.superseded_citations = sorted(
+            source.index for source in sources if source.superseded and source.index in cited
+        )
         result.seconds = round(time.perf_counter() - started, 2)
 
         log.info(
@@ -205,6 +235,19 @@ class Answerer:
         for _ in self.stream(question, into=result):
             pass
         return result
+
+    def _start_warming(self) -> None:
+        """Begin loading the generation model in the background, if it can be.
+
+        Optional by protocol: an LLM with no `warm` simply does not get one.
+        Daemon so it can never hold the process open, and errors are swallowed
+        inside `warm` itself — the real request loads the model anyway, so a
+        failure here costs nothing but the overlap.
+        """
+        warm = getattr(self._llm, "warm", None)
+        if warm is None:
+            return
+        threading.Thread(target=warm, name="llm-warm", daemon=True).start()
 
     # --- grounding -----------------------------------------------------------
 

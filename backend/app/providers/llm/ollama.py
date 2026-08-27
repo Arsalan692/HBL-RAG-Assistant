@@ -185,3 +185,28 @@ class OllamaLLM:
             + (", ".join(available) if available else "none")
             + f". Run: ollama pull {self.model}"
         )
+
+    def warm(self) -> bool:
+        """Ask Ollama to load the weights without generating anything.
+
+        Time-to-first-token is dominated by two serial costs: loading the model
+        and prefilling the prompt. The first does not depend on the prompt, so
+        it does not have to wait for retrieval to finish — and retrieval is not
+        quick. On the CPU laptop it runs 90-130s while the LLM sits idle, and a
+        cold 4.9 GB load afterwards has twice pushed generation past its
+        timeout. Starting the load alongside retrieval overlaps them.
+
+        Best effort: a failure here is not a failure of the answer, because the
+        real request will load the model anyway. Never raises.
+        """
+        try:
+            with self._request("/api/generate", {
+                "model": self.model,
+                "prompt": "",
+                "keep_alive": self._settings.keep_alive,
+            }) as response:
+                response.read()
+            return True
+        except Exception as exc:  # noqa: BLE001 - genuinely best effort
+            log.debug("llm.warm_failed", extra={"error": str(exc)[:200]})
+            return False

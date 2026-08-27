@@ -811,6 +811,10 @@ def cmd_ask(args: argparse.Namespace, settings: Settings) -> int:
         if result.invented_citations:
             print(f"  INVENTED citations, stripped: {result.invented_citations} — "
                   "the model cited passages that were never supplied.")
+        if result.superseded_citations:
+            print(f"  SUPERSEDED sources cited: {result.superseded_citations} — "
+                  "check the answer says so; a replaced clause presented as\n"
+                  "  current is the failure the vintage handling exists to prevent.")
         if result.unused_sources:
             print(f"  Unused sources: {result.unused_sources}")
         print()

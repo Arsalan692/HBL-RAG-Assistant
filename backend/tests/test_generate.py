@@ -56,9 +56,14 @@ class FakeLLM:
 class FakeRetriever:
     def __init__(self, result: RetrievalResult) -> None:
         self._result = result
+        self.released = False
 
     def search(self, query: str, *, top_k: int | None = None) -> RetrievalResult:
         return self._result
+
+    def release_reranker(self) -> bool:
+        self.released = True
+        return True
 
 
 def _answerer(passages: list[Passage], llm: FakeLLM | None = None) -> Answerer:
@@ -246,3 +251,112 @@ def test_a_first_token_timeout_explains_itself(monkeypatch: pytest.MonkeyPatch) 
     # Every suggestion must be actionable, not a diagnosis on its own.
     assert "ollama run" in message
     assert "HBL_LLM_TIMEOUT_S" in message
+
+
+# --- memory ------------------------------------------------------------------
+
+
+def test_the_reranker_is_released_before_generation_on_cpu() -> None:
+    """Reranking is over the moment retrieval returns, and the cross-encoder's
+    ~2.3 GB is then held through the longest part of the query.
+
+    That is not a micro-optimisation. bge-m3 (2.3 GB) plus the reranker
+    (2.3 GB) plus a resident qwen3:8b (4.9 GB) exhausted a 16 GB laptop
+    mid-load and segfaulted — exit 139, no exception, no message. The same
+    budget is documented as barely fitting on the 16 GB card.
+    """
+    from app.config import RuntimeSettings
+
+    settings = Settings()
+    settings.runtime = RuntimeSettings(_env_file=None, device="cpu")  # type: ignore[call-arg]
+
+    retriever = FakeRetriever(
+        RetrievalResult(query="q", passages=[_passage(1, "A clause.")], refused=False)
+    )
+    answerer = Answerer(retriever=retriever, llm=FakeLLM(), settings=settings)  # type: ignore[arg-type]
+
+    events = list(answerer.stream("q"))
+    assert retriever.released
+    # ...and it happens before any answer text, not after.
+    assert [e.kind for e in events].index("delta") > 0
+
+
+def test_the_reranker_stays_resident_on_cuda() -> None:
+    """There, reloading costs real time on every query and the VRAM budget
+    already accounts for all three models being resident."""
+    from app.config import RuntimeSettings
+
+    settings = Settings()
+    settings.runtime = RuntimeSettings(_env_file=None, device="cuda")  # type: ignore[call-arg]
+
+    retriever = FakeRetriever(
+        RetrievalResult(query="q", passages=[_passage(1, "A clause.")], refused=False)
+    )
+    Answerer(retriever=retriever, llm=FakeLLM(), settings=settings).answer("q")  # type: ignore[arg-type]
+    assert not retriever.released
+
+
+def test_citing_a_superseded_passage_is_recorded() -> None:
+    """Observed on the real corpus: asked about correspondent banking, the
+    model cited the 2023 Sanctions Policy for an automated-screening
+    requirement and presented it as current, with nothing marking it replaced.
+
+    The prompt now asks it to say so in the sentence, but a rule the model may
+    or may not follow is not a safeguard. A reader acting on a replaced clause
+    is the specific harm, so it is measured."""
+    llm = FakeLLM(answer="Screening is automated [2] and lists are checked [1].")
+    result = _answerer(
+        [_passage(1, "Current rule."), _passage(2, "Old rule.", year=2023, superseded=True)],
+        llm=llm,
+    ).answer("q")
+
+    assert result.superseded_citations == [2]
+
+
+def test_an_uncited_superseded_passage_is_not_flagged() -> None:
+    """Retrieval deliberately keeps superseded passages so the model can see
+    them. Only *citing* one is worth reporting."""
+    llm = FakeLLM(answer="Screening is required [1].")
+    result = _answerer(
+        [_passage(1, "Current rule."), _passage(2, "Old rule.", year=2023, superseded=True)],
+        llm=llm,
+    ).answer("q")
+
+    assert result.superseded_citations == []
+    assert result.unused_sources == [2]
+
+
+def test_the_prompt_forbids_citing_a_replaced_edition_silently() -> None:
+    from app.generate.prompt import SYSTEM
+
+    rules = SYSTEM.lower()
+    assert "supersed" in rules
+    assert "same sentence" in rules
+
+
+def test_the_model_starts_loading_before_retrieval_finishes() -> None:
+    """Loading the weights does not depend on the question, and retrieval is
+    not quick — 90-130s on CPU, during which the LLM would otherwise sit idle.
+    A cold 4.9 GB load afterwards twice pushed generation past its timeout.
+
+    Safe only because the embedder is released before the reranker loads: the
+    LLM's 4.9 GB now overlaps with retrieval's, and without that release the
+    three together are what segfaulted the machine."""
+    import threading
+
+    warmed = threading.Event()
+
+    class Warmable(FakeLLM):
+        def warm(self) -> bool:
+            warmed.set()
+            return True
+
+    _answerer([_passage(1, "A clause.")], llm=Warmable()).answer("q")
+    assert warmed.wait(timeout=5), "warm() should have been started"
+
+
+def test_an_llm_that_cannot_warm_is_not_required_to() -> None:
+    """Optional by protocol. `FakeLLM` has no `warm`, and neither need any
+    future provider."""
+    result = _answerer([_passage(1, "A clause.")], llm=FakeLLM()).answer("q")
+    assert result.text and not result.refused

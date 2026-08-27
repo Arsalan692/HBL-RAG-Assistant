@@ -110,6 +110,11 @@ class Retriever:
         self._reranker = reranker
         self._settings = settings.retrieval
         self._doc_cache: dict[str, DocumentFacts] = {}
+        # On CUDA the VRAM budget assumes all three models stay resident and
+        # reloading would cost real time on every query. On CPU the same
+        # simultaneity is what exhausts a 16 GB machine, and a few seconds of
+        # reload is invisible beside a query that already takes a minute.
+        self._release_between_stages = settings.runtime.device == "cpu"
 
     def search(self, query: str, *, top_k: int | None = None) -> RetrievalResult:
         started = time.perf_counter()
@@ -123,6 +128,13 @@ class Retriever:
         dense = self._vectors.search(
             self._embedder.embed_query(query), limit=self._settings.dense_top_k
         )
+        # The embedder's work is done — one query vector — and the reranker has
+        # not loaded yet. Freeing 2.3 GB here is what keeps the two from ever
+        # being resident together, which is the peak that killed a 16 GB
+        # laptop mid-load with a segfault and no message.
+        if self._release_between_stages:
+            self.release_embedder()
+
         keyword = self._registry.search(query, limit=self._settings.keyword_top_k)
         result.dense_found = len(dense)
         result.keyword_found = len(keyword)
@@ -159,6 +171,24 @@ class Retriever:
             },
         )
         return result
+
+    def release_embedder(self) -> bool:
+        """Drop the embedder's weights. Returns whether anything was freed.
+
+        One query vector is all a search needs from it, and the reranker is
+        about to want the same 2.3 GB.
+        """
+        return _unload(self._embedder, "retrieve.embedder_released")
+
+    def release_reranker(self) -> bool:
+        """Drop the cross-encoder's weights. Returns whether anything was freed.
+
+        Reranking is finished the moment `search` returns, so holding ~2.3 GB
+        through generation buys only the next query's load time. On a machine
+        where that 2.3 GB is the difference between answering and dying, it is
+        the wrong trade.
+        """
+        return _unload(self._reranker, "retrieve.reranker_released")
 
     # --- stages --------------------------------------------------------------
 
@@ -264,3 +294,14 @@ class Retriever:
         # Newer editions first within equal relevance, so a model reading the
         # passages in order meets the current rule before the superseded one.
         result.passages.sort(key=lambda p: (p.superseded, -p.score))
+
+
+def _unload(provider: object | None, event: str) -> bool:
+    """Release a provider's weights if it holds any. Optional by protocol —
+    the hashing stand-in and the Ollama-served embedder have nothing to free."""
+    unload = getattr(provider, "unload", None)
+    if unload is None:
+        return False
+    unload()
+    log.debug(event)
+    return True
