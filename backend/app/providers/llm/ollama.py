@@ -51,10 +51,34 @@ class OllamaLLM:
             body = exc.read().decode("utf-8", "replace")[:400]
             raise ProviderUnavailable(f"Ollama returned {exc.code} for {path}: {body}") from exc
         except URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise self._timed_out() from exc
             raise ProviderUnavailable(
                 f"cannot reach Ollama at {self._base} ({exc.reason}). "
                 "Is `ollama serve` running on this machine?"
             ) from exc
+        except TimeoutError as exc:
+            # Not a URLError: a socket read that never produced a first byte.
+            raise self._timed_out() from exc
+
+    def _timed_out(self) -> ProviderUnavailable:
+        """The cold-start case, which is otherwise an empty `TimeoutError`.
+
+        `timeout_s` applies to a single read, and the first read is the
+        expensive one: Ollama loads the weights, then prefills the whole prompt
+        before emitting a token. Eight retrieved passages are 3–4k tokens, which
+        on a CPU-only machine can pass 180s before the first byte — while the
+        same request is a few seconds once the model is resident.
+        """
+        return ProviderUnavailable(
+            f"{self.model} produced no first token within {self._settings.timeout_s:.0f}s "
+            f"at {self._base}.\n"
+            "This is normally a cold start rather than a fault: the weights load and "
+            "the whole prompt is prefilled before the first token appears.\n"
+            "  - warm it once:  ollama run " + self.model + ' ""\n'
+            "  - or allow longer:  HBL_LLM_TIMEOUT_S=600\n"
+            "  - or shorten the prompt:  HBL_RETRIEVAL_RERANK_TOP_K=4"
+        )
 
     def _payload(
         self,
