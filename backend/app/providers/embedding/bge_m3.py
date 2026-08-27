@@ -20,6 +20,7 @@ from typing import Any, Sequence
 from app.config import EmbeddingSettings, RuntimeSettings
 from app.errors import ProviderUnavailable
 from app.logging_config import get_logger
+from app.providers.base import model_identity
 
 log = get_logger(__name__)
 
@@ -39,6 +40,17 @@ class BgeM3Embedder:
         self._runtime = runtime or RuntimeSettings()
         self.model_name = settings.model
         self._model: Any | None = None
+
+    @property
+    def fingerprint(self) -> str:
+        """The vector space, not the path to it.
+
+        `D:/transfer/bge-m3` here and `storage/models/bge-m3` on the workstation
+        are the same weights, so both must reduce to `bge-m3:1024` — otherwise
+        an index built on one machine would look foreign on the other and
+        demand a re-index that changes nothing.
+        """
+        return f"{model_identity(self.model_name)}:{self.dimension}"
 
     # --- loading -------------------------------------------------------------
 
@@ -67,8 +79,10 @@ class BgeM3Embedder:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:  # pragma: no cover - depends on the machine
             raise ProviderUnavailable(
-                "sentence-transformers is not installed. On the workstation: "
-                "pip install --no-index --find-links=wheels sentence-transformers"
+                "sentence-transformers is not installed. Both machines can reach PyPI: "
+                "pip install torch sentence-transformers\n"
+                "Or, to avoid re-downloading torch where wheels are already staged: "
+                "pip install --no-index --find-links=<wheels folder> sentence-transformers"
             ) from exc
 
         local = Path(self.model_name)
@@ -79,10 +93,14 @@ class BgeM3Embedder:
 
         if not local.exists() and "/" in self.model_name:
             raise ProviderUnavailable(
-                f"HBL_EMBEDDING_MODEL={self.model_name!r} looks like a Hugging Face repo id, "
-                f"and {local} does not exist. The workstation has no internet, so this would "
-                "hang rather than download. Stage the weights and point this at the folder — "
-                "see docs/download-manifest.html."
+                f"HBL_EMBEDDING_MODEL={self.model_name!r} looks like a Hugging Face repo id "
+                f"and {local} does not exist. With HBL_HF_OFFLINE=true nothing is fetched at "
+                "load time, which is deliberate — a run that pauses to download is a run "
+                "whose timings mean nothing.\n"
+                "Download it once, deliberately:\n"
+                f"    hf download {self.model_name} --local-dir <folder>\n"
+                "then point HBL_EMBEDDING_MODEL at that folder. Note bge-m3 ships its "
+                "weights as pytorch_model.bin, not model.safetensors."
             )
 
         started = time.perf_counter()

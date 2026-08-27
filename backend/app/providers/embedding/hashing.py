@@ -45,6 +45,17 @@ class HashingEmbedder:
     def dimension(self) -> int:
         return self._settings.dimension
 
+    @property
+    def fingerprint(self) -> str:
+        """Its own name, never the configured one.
+
+        `--embedder hashing` overrides the provider but leaves
+        HBL_EMBEDDING_MODEL saying `BAAI/bge-m3`, so reporting the setting here
+        would stamp an index of hashed n-grams as though a real model had built
+        it — the exact confusion the fingerprint exists to prevent.
+        """
+        return f"hashing:{self.dimension}"
+
     def load(self) -> None:
         if not self._warned:
             log.warning(

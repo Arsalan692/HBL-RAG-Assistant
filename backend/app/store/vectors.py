@@ -1,9 +1,9 @@
 """The dense half of retrieval: a local Qdrant collection.
 
 Embedded mode — Qdrant runs inside this process against a directory on disk,
-with no server and no Docker. That is not a compromise for development: the
-workstation is air-gapped and adding a container runtime to it is a permission
-request, while a directory is a directory.
+with no server and no Docker. That is not a compromise for development: adding
+a container runtime to a locked-down bank workstation is a permission request,
+while a directory is a directory.
 
 Payload indexes are created explicitly rather than left to Qdrant's defaults,
 because every one of them backs a filter the system actually applies:
@@ -53,8 +53,7 @@ class VectorStore:
             from qdrant_client import QdrantClient, models
         except ImportError as exc:  # pragma: no cover - depends on the machine
             raise ProviderUnavailable(
-                "qdrant-client is not installed. On the workstation: "
-                "pip install --no-index --find-links=wheels qdrant-client"
+                "qdrant-client is not installed. Run: pip install qdrant-client"
             ) from exc
 
         self._models = models
@@ -164,6 +163,35 @@ class VectorStore:
             wait=True,
         )
         log.info("vectors.deleted", extra={"doc_id": doc_id})
+
+    def drop(self) -> int:
+        """Empty the collection. Returns how many points were removed.
+
+        Deliberately *not* `delete_collection` followed by a recreate, which is
+        the obvious way to write this and does not work in embedded mode: the
+        collection disappears from `get_collections()`, and then recreating it
+        under the same name brings every old point back, because the on-disk
+        data was never purged. That reads as success and leaves the stale
+        vectors in place — exactly the failure this method exists to prevent.
+
+        An empty `Filter` matches everything, so this removes all points while
+        keeping the collection and its payload indexes.
+        """
+        models = self._models
+        points = self.count()
+        self._client.delete(
+            collection_name=self.collection,
+            points_selector=models.FilterSelector(filter=models.Filter()),
+            wait=True,
+        )
+        remaining = self.count()
+        if remaining:
+            raise RuntimeError(
+                f"{self.collection} still holds {remaining} points after a drop. "
+                "Refusing to continue, because the next step would mix vector spaces."
+            )
+        log.warning("vectors.dropped", extra={"collection": self.collection, "points": points})
+        return points
 
     # --- reading -------------------------------------------------------------
 

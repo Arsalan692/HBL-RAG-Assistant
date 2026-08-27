@@ -95,6 +95,19 @@ class LLM(Protocol):
 # --- Dense retrieval ---------------------------------------------------------
 
 
+def model_identity(name: str) -> str:
+    """The bare model name, with the route to it stripped off.
+
+    The same weights are named four different ways across this project:
+    `BAAI/bge-m3` as a repo id, `D:/transfer/bge-m3` on the laptop,
+    `storage/models/bge-m3` on the workstation, and `bge-m3` as an Ollama tag.
+    They are one vector space, so all four have to reduce to one string — or
+    every machine would think the other's index was built by a different model.
+    """
+    bare = (name or "").replace("\\", "/").rstrip("/")
+    return bare.rsplit("/", 1)[-1] if "/" in bare else bare
+
+
 class Embedder(Protocol):
     """Turns text into vectors for the dense half of retrieval.
 
@@ -107,6 +120,24 @@ class Embedder(Protocol):
     name: str
     model: str
     dimension: int
+
+    @property
+    def fingerprint(self) -> str:
+        """Which vector space this embedder produces, as `model:dimension`.
+
+        Vectors are only comparable to other vectors from the same model, and
+        nothing about a stored vector reveals which model made it — the
+        development `hashing` stand-in emits 1024 floats exactly like bge-m3
+        does, so a store built by one accepts writes from the other and every
+        ranking afterwards is quietly meaningless.
+
+        This is the string that gets recorded alongside the index so that
+        mismatch is an error rather than a silence. It deliberately ignores
+        *how* the model was reached: `bge-m3` served by Ollama and the same
+        weights loaded in-process are one vector space, and switching routes
+        between machines must not force a re-index.
+        """
+        ...
 
     def embed_documents(
         self, texts: Sequence[str], *, batch_size: int | None = None

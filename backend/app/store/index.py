@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from app.config import Settings
+from app.errors import IndexMismatch
 from app.ingest.chunk import Chunk
 from app.ingest.metadata import DocumentIdentity
 from app.logging_config import get_logger
@@ -59,6 +60,58 @@ class DeleteResult:
     vectors_removed: int = 0
     chunks_removed: int = 0
     files_removed: list[str] = field(default_factory=list)
+
+
+def ensure_same_embedder(
+    registry: Registry,
+    vectors: VectorStore,
+    embedder: Embedder,
+    *,
+    reset: bool = False,
+) -> str:
+    """Refuse to mix vector spaces, and stamp the store with the one in use.
+
+    Call once per run, before writing or searching. Returns a short note about
+    what happened, or "" when the store was already consistent.
+
+    The case that matters is not a crash — it is the absence of one. Every
+    embedder here emits `HBL_EMBEDDING_DIMENSION` floats, so Qdrant cannot tell
+    hashed n-grams from bge-m3 and accepts both into one collection. Retrieval
+    then returns confident nonsense, and nothing anywhere reports a fault.
+    """
+    current = embedder.fingerprint
+    stored = registry.index_fingerprint()
+
+    if reset:
+        vectors.drop()
+        registry.set_index_fingerprint(current)
+        return f"reset the collection and stamped it {current}"
+
+    if stored == current:
+        return ""
+
+    # Nothing stamped. Either the store is empty, or it predates this check —
+    # and an existing index whose origin is unrecorded is exactly the thing
+    # that cannot be trusted, so it is not adopted silently.
+    if not stored:
+        points = vectors.count()
+        if points == 0:
+            registry.set_index_fingerprint(current)
+            return f"stamped the empty collection {current}"
+        raise IndexMismatch(
+            f"{points} vectors are already indexed but nothing recorded which embedder "
+            f"built them, so they cannot be assumed to be {current}.\n"
+            "Re-index from the parsed markdown, which is quick and needs no OCR:\n"
+            "    hbl index --reset"
+        )
+
+    raise IndexMismatch(
+        f"the index was built by {stored!r} but the configured embedder is {current!r}. "
+        "Vectors from two models in one collection produce rankings that look normal "
+        "and mean nothing.\n"
+        "Either restore the previous setting, or rebuild:\n"
+        "    hbl index --reset"
+    )
 
 
 def index_document(
@@ -104,7 +157,7 @@ def index_document(
         # Replace before embedding: if this run dies partway, the document is
         # left with no chunks and a status of `embedding`, which is visibly
         # unfinished. Leaving the old ones would look complete and be stale.
-        registry.replace_chunks(identity.doc_id, chunks)
+        registry.replace_chunks(identity.doc_id, chunks, identifiers=identity.circular)
 
         stored = 0
         for start in range(0, len(chunks), batch_size):

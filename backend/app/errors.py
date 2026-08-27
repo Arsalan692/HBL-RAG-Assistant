@@ -30,3 +30,12 @@ class ProviderUnavailable(ProviderError):
 
 class ProviderNotImplemented(ProviderError):
     """The provider is declared in the registry but its implementation phase hasn't run yet."""
+
+
+class IndexMismatch(HblError):
+    """The index was built by a different embedder than the one now configured.
+
+    Raised rather than warned about, because the failure it prevents is silent:
+    vectors from two models share a collection happily and produce rankings
+    that look ordinary and mean nothing.
+    """

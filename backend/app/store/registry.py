@@ -68,16 +68,48 @@ CREATE TABLE IF NOT EXISTS chunks (
     pages          TEXT NOT NULL DEFAULT '[]',
     kind           TEXT NOT NULL DEFAULT 'prose',
     tokens         INTEGER NOT NULL DEFAULT 0,
-    text           TEXT NOT NULL
+    text           TEXT NOT NULL,
+    -- Identifiers that belong to the document but appear nowhere in its body.
+    -- `A-INST-2025-01` is the circular number on the covering instruction for
+    -- both 2025 policies, and it is written only on the front page, which
+    -- becomes the title — never in a clause. Someone asking "what does
+    -- A-INST-2025-01 say" was therefore unfindable by the half of retrieval
+    -- that exists precisely to find identifiers.
+    identifiers    TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS chunks_doc ON chunks(doc_id);
 
+-- Which embedder built the vectors next door in Qdrant. One row, enforced by
+-- the CHECK, because there is one collection and it has one vector space.
+--
+-- Without this, an index is indistinguishable from an index built by a
+-- different model: the development `hashing` stand-in emits 1024 floats and so
+-- does bge-m3, so Qdrant accepts writes from either into the same collection
+-- and every score afterwards is nonsense that looks like a score.
+CREATE TABLE IF NOT EXISTS index_meta (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    fingerprint TEXT NOT NULL,
+    updated_at  REAL NOT NULL
+);
+
+"""
+
+#: Kept separate from SCHEMA so a migration can drop and rebuild it. An
+#: external-content FTS5 table's columns must match what its triggers write, so
+#: adding a column means recreating the table, not altering it.
+SCHEMA_FTS = """
 -- External-content FTS5: the text lives once, in `chunks`. Without this the
 -- corpus would be stored twice and the copies could drift.
+--
+-- `identifiers` is deliberately its own column rather than being glued onto
+-- the text: bm25() can then be told to weight it separately, and the document's
+-- circular number repeated across all 107 of its chunks does not dilute the
+-- statistics of the prose.
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     text,
     section,
+    identifiers,
     content='chunks',
     content_rowid='rowid_',
     tokenize='porter unicode61'
@@ -87,18 +119,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 -- a code path that forgot. Deleting a document cascades to chunks, which fires
 -- these, which removes the keyword entries — all inside one transaction.
 CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
-    INSERT INTO chunks_fts(rowid, text, section) VALUES (new.rowid_, new.text, new.section);
+    INSERT INTO chunks_fts(rowid, text, section, identifiers)
+    VALUES (new.rowid_, new.text, new.section, new.identifiers);
 END;
 
 CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
-    INSERT INTO chunks_fts(chunks_fts, rowid, text, section)
-    VALUES ('delete', old.rowid_, old.text, old.section);
+    INSERT INTO chunks_fts(chunks_fts, rowid, text, section, identifiers)
+    VALUES ('delete', old.rowid_, old.text, old.section, old.identifiers);
 END;
 
 CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
-    INSERT INTO chunks_fts(chunks_fts, rowid, text, section)
-    VALUES ('delete', old.rowid_, old.text, old.section);
-    INSERT INTO chunks_fts(rowid, text, section) VALUES (new.rowid_, new.text, new.section);
+    INSERT INTO chunks_fts(chunks_fts, rowid, text, section, identifiers)
+    VALUES ('delete', old.rowid_, old.text, old.section, old.identifiers);
+    INSERT INTO chunks_fts(rowid, text, section, identifiers)
+    VALUES (new.rowid_, new.text, new.section, new.identifiers);
 END;
 """
 
@@ -145,6 +179,41 @@ class Registry:
         self._db.execute("PRAGMA foreign_keys = ON")
         self._db.execute("PRAGMA journal_mode = WAL")
         self._db.executescript(SCHEMA)
+        self._migrate()
+        self._db.executescript(SCHEMA_FTS)
+
+    def _migrate(self) -> None:
+        """Bring an older database up to the current shape.
+
+        Only one migration so far: `chunks.identifiers`. It matters that this
+        does not require re-embedding — the vectors are untouched by a keyword
+        change, and rebuilding them costs about 45 minutes of CPU. Everything
+        needed to backfill is already in the `documents` table.
+        """
+        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(chunks)")}
+        if "identifiers" in columns:
+            return
+
+        log.info("registry.migrating", extra={"change": "chunks.identifiers"})
+        with self.transaction() as db:
+            db.execute("ALTER TABLE chunks ADD COLUMN identifiers TEXT NOT NULL DEFAULT ''")
+            db.execute(
+                """
+                UPDATE chunks SET identifiers = COALESCE(
+                    (SELECT d.circular FROM documents d WHERE d.doc_id = chunks.doc_id), ''
+                )
+                """
+            )
+            # The FTS table's columns must match what the triggers write, and
+            # an external-content table cannot be altered — so it is dropped and
+            # rebuilt from `chunks`, which still holds every row.
+            for trigger in ("chunks_ai", "chunks_ad", "chunks_au"):
+                db.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+            db.execute("DROP TABLE IF EXISTS chunks_fts")
+
+        self._db.executescript(SCHEMA_FTS)
+        self._db.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
+        log.info("registry.migrated", extra={"change": "chunks.identifiers"})
 
     def close(self) -> None:
         self._db.close()
@@ -240,27 +309,61 @@ class Registry:
             )
         ]
 
+    # --- which model built the index -----------------------------------------
+
+    def index_fingerprint(self) -> str:
+        """The embedder that built the current vectors, or "" if never stamped.
+
+        An empty string means one of two things and cannot tell them apart: a
+        store nothing has been written to yet, or one written before this table
+        existed. Both are handled the same way — by whoever is about to write,
+        which is the only moment the answer is knowable.
+        """
+        row = self._db.execute("SELECT fingerprint FROM index_meta WHERE id = 1").fetchone()
+        return str(row["fingerprint"]) if row else ""
+
+    def set_index_fingerprint(self, fingerprint: str) -> None:
+        self._db.execute(
+            """
+            INSERT INTO index_meta (id, fingerprint, updated_at) VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET fingerprint = excluded.fingerprint,
+                                          updated_at = excluded.updated_at
+            """,
+            (fingerprint, time.time()),
+        )
+        log.info("registry.fingerprint", extra={"fingerprint": fingerprint})
+
+    def clear_index_fingerprint(self) -> None:
+        self._db.execute("DELETE FROM index_meta")
+
     # --- chunks --------------------------------------------------------------
 
-    def replace_chunks(self, doc_id: str, chunks: Sequence[Chunk]) -> int:
+    def replace_chunks(
+        self, doc_id: str, chunks: Sequence[Chunk], *, identifiers: str = ""
+    ) -> int:
         """Set a document's chunks to exactly these, in one transaction.
 
         Replace rather than append: re-indexing a document that changed must
         not leave its previous chunks behind, retrievable and stale.
+
+        `identifiers` is the document's circular number, copied onto every
+        chunk. It appears only on the front page of the PDF, so without this it
+        reaches the title and stops — leaving the corpus's most quotable
+        identifier invisible to keyword search.
         """
         with self.transaction() as db:
             db.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
             db.executemany(
                 """
                 INSERT INTO chunks (chunk_id, doc_id, section, section_number,
-                                    page, pages, kind, tokens, text)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    page, pages, kind, tokens, text, identifiers)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
                         c.chunk_id, doc_id, c.section, c.section_number,
                         c.pages[0] if c.pages else 0, json.dumps(list(c.pages)),
-                        c.kind, c.tokens, c.text,
+                        c.kind, c.tokens, c.text, identifiers,
                     )
                     for c in chunks
                 ],
@@ -292,6 +395,13 @@ class Registry:
         The query is passed through `escape_fts` because these are real user
         questions: an apostrophe or a stray quote is a syntax error to FTS5,
         and "what is a PEP?" should not raise.
+
+        Column weights matter here. `identifiers` holds the document's circular
+        number on *every* one of its chunks, so at equal weight a query naming
+        that circular would match all 107 chunks of a policy identically and
+        flood the candidate list with a flat tie. At 0.25 it still surfaces the
+        document — the token appears nowhere else in the corpus — without
+        outranking a chunk whose prose actually answers the question.
         """
         escaped = escape_fts(query)
         if not escaped:
@@ -299,7 +409,7 @@ class Registry:
         rows = self._db.execute(
             """
             SELECT c.chunk_id, c.doc_id, c.section, c.page, c.text,
-                   bm25(chunks_fts) AS score
+                   bm25(chunks_fts, 1.0, 0.5, 0.25) AS score
             FROM chunks_fts
             JOIN chunks c ON c.rowid_ = chunks_fts.rowid
             WHERE chunks_fts MATCH ?

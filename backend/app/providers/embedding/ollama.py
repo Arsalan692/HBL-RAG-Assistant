@@ -1,12 +1,16 @@
 """Dense embeddings from bge-m3, served by the Ollama that is already running.
 
-The same model as `bge_m3.py`, reached a different way — and for this project
-the difference is large. Loading it through sentence-transformers drags in
-torch, transformers and the Hugging Face stack: about 2.4 GB of wheels plus a
-2.2 GB weights folder, every byte of it hand-carried to an air-gapped machine.
-Ollama is already installed there, already serving the generation model and the
-OCR model, and already holds `bge-m3`. Going through it costs **no transfer and
-no new dependency** — this module is stdlib `urllib` and nothing else.
+The same model as `bge_m3.py`, reached a different way. Loading it through
+sentence-transformers pulls in torch, transformers and the Hugging Face stack —
+roughly 2.5 GB of wheels plus a 2.2 GB weights folder. Ollama is already
+installed on the workstation, already serving the generation and OCR models,
+and already holds `bge-m3`, so going through it costs **no download and no new
+dependency**: this module is stdlib `urllib` and nothing else.
+
+That is a smaller win than it was — the workstation turned out to have internet,
+so the alternative is a `pip install` rather than a hand-carried transfer. It
+still matters for a different reason: Phase 04's reranker needs torch anyway,
+so this route does not remove the dependency, it defers it.
 
 Two things are handled here rather than assumed:
 
@@ -34,6 +38,7 @@ from urllib.request import Request, urlopen
 from app.config import EmbeddingSettings
 from app.errors import ProviderUnavailable
 from app.logging_config import get_logger
+from app.providers.base import model_identity
 
 log = get_logger(__name__)
 
@@ -48,8 +53,7 @@ class OllamaEmbedder:
         # `.env` may carry a local folder path for the sentence-transformers
         # route. That is meaningless to Ollama, which wants a model tag, so a
         # path collapses to its last component: storage/models/bge-m3 -> bge-m3.
-        raw = (settings.model or "bge-m3").replace("\\", "/")
-        self.model = raw.rsplit("/", 1)[-1] if "/" in raw else raw
+        self.model = model_identity(settings.model or "bge-m3")
         self._base = settings.base_url.rstrip("/")
         self._checked = False
 
@@ -103,6 +107,17 @@ class OllamaEmbedder:
     @property
     def dimension(self) -> int:
         return self._settings.dimension
+
+    @property
+    def fingerprint(self) -> str:
+        """Deliberately identical to the in-process route's.
+
+        Both serve the same bge-m3 weights, so an index built through Ollama is
+        searchable through sentence-transformers and the reverse — which is the
+        point of having two routes at all. If the two are ever found to disagree
+        numerically, this is the line that has to change.
+        """
+        return f"{model_identity(self.model)}:{self.dimension}"
 
     def _embed(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
