@@ -97,13 +97,34 @@ class StubEngine(Engine):
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
+    """Every path redirected into tmp_path, and checked.
+
+    `documents_dir` was missed once, and these tests write and delete files
+    there — three stray uploads landed in the real corpus, and a delete test
+    was one filename away from removing a genuine bank policy PDF that has no
+    other copy. The loop below is why that cannot happen twice: a path added to
+    PathSettings later and forgotten here fails the suite instead of escaping
+    into `data/`.
+    """
     s = Settings()
+    s.paths.data_dir = tmp_path / "data"
+    s.paths.storage_dir = tmp_path / "storage"
     s.paths.registry_db = tmp_path / "registry.sqlite"
     s.paths.qdrant_dir = tmp_path / "qdrant"
     s.paths.parsed_dir = tmp_path / "parsed"
     s.paths.page_image_dir = tmp_path / "images"
+    s.paths.documents_dir = tmp_path / "documents"
+    s.paths.model_cache_dir = tmp_path / "models"
+    s.paths.log_dir = tmp_path / "logs"
     s.paths.parsed_dir.mkdir(parents=True, exist_ok=True)
+    s.paths.documents_dir.mkdir(parents=True, exist_ok=True)
     s.embedding = EmbeddingSettings(_env_file=None, dimension=DIMENSION)  # type: ignore[call-arg]
+
+    for name, location in s.paths.directories().items():
+        assert tmp_path in location.parents or location == tmp_path, (
+            f"{name} points at {location}, outside the temporary directory — "
+            "these tests create and delete files, and the real corpus is not replaceable"
+        )
     return s
 
 
@@ -298,3 +319,146 @@ def test_health_reports_the_fingerprint_that_makes_answers_meaningful(client) ->
     assert body["documents"] == 1
     assert body["indexFingerprint"] == engine.embedder.fingerprint
     assert "llm" in body["providers"]
+
+
+# --- upload ------------------------------------------------------------------
+#
+# The ingest itself is not exercised here: it needs a vision model and minutes
+# of GPU. What is tested is everything guarding it — what reaches disk, under
+# what name, and what is refused before a worker thread ever starts.
+
+
+MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
+
+
+@pytest.fixture
+def no_ingest(monkeypatch: pytest.MonkeyPatch):
+    """Accept the upload but never start the worker.
+
+    Ingest wants an OCR model and several minutes; the endpoint's job is to
+    validate, store and hand off, and that is what these check.
+    """
+    started: list = []
+    monkeypatch.setattr("app.api.documents.jobqueue.start", lambda job, path, engine: started.append((job, path)))
+    return started
+
+
+def test_a_pdf_is_stored_and_a_job_returned(client, settings, no_ingest) -> None:
+    c, _ = client
+    response = c.post(
+        "/documents",
+        files={"file": ("Donations Policy 2024.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["state"] == "queued"
+    assert body["filename"] == "Donations Policy 2024.pdf"
+    assert (settings.paths.documents_dir / "Donations Policy 2024.pdf").exists()
+    assert len(no_ingest) == 1
+
+
+def test_a_filename_cannot_escape_the_documents_directory(client, settings, no_ingest) -> None:
+    """An uploaded name is untrusted input that decides where bytes land."""
+    c, _ = client
+    response = c.post(
+        "/documents",
+        files={"file": ("../../../evil.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["filename"] == "evil.pdf"
+    assert (settings.paths.documents_dir / "evil.pdf").exists()
+    # Nothing was written outside the documents directory.
+    assert not (settings.paths.documents_dir.parent.parent / "evil.pdf").exists()
+
+
+@pytest.mark.parametrize(
+    "given,expected",
+    [
+        (r"..\..\windows\system32\x.pdf", "x.pdf"),
+        (r"C:\Users\someone\policy.pdf", "policy.pdf"),
+        ("report", "report.pdf"),
+        ("with:illegal|chars?.pdf", "with-illegal-chars-.pdf"),
+    ],
+)
+def test_filenames_are_reduced_to_something_safe(given: str, expected: str) -> None:
+    from app.api.documents import safe_filename
+
+    assert safe_filename(given) == expected
+
+
+def test_a_file_that_is_not_a_pdf_is_refused_before_it_lands(client, settings, no_ingest) -> None:
+    """The extension is a claim by whoever uploaded it. The bytes are checked,
+    so the failure is 'that is not a PDF' rather than something from deep
+    inside PyMuPDF about the wrong thing."""
+    c, _ = client
+    response = c.post(
+        "/documents",
+        files={"file": ("payload.pdf", b"MZ\x90\x00 this is an executable", "application/pdf")},
+    )
+
+    assert response.status_code == 415
+    assert "not a PDF" in response.json()["detail"]
+    assert not (settings.paths.documents_dir / "payload.pdf").exists()
+    assert no_ingest == []
+
+
+def test_an_empty_file_is_refused(client, settings, no_ingest) -> None:
+    c, _ = client
+    response = c.post("/documents", files={"file": ("empty.pdf", b"", "application/pdf")})
+    assert response.status_code == 400
+    assert not (settings.paths.documents_dir / "empty.pdf").exists()
+
+
+def test_a_file_larger_than_the_cap_is_refused_and_not_kept(client, settings, no_ingest, monkeypatch) -> None:
+    """Refused while streaming, so an oversized upload is never buffered whole."""
+    monkeypatch.setattr("app.api.documents.MAX_UPLOAD_BYTES", 1024)
+    c, _ = client
+    response = c.post(
+        "/documents",
+        files={"file": ("huge.pdf", MINIMAL_PDF + b"\x00" * 4096, "application/pdf")},
+    )
+
+    assert response.status_code == 413
+    assert not (settings.paths.documents_dir / "huge.pdf").exists()
+
+
+def test_uploading_a_name_already_present_is_refused(client, settings, no_ingest) -> None:
+    """Overwriting silently would leave the index pointing at content that no
+    longer exists on disk."""
+    c, _ = client
+    files = {"file": ("Donations Policy 2024.pdf", MINIMAL_PDF, "application/pdf")}
+    assert c.post("/documents", files=files).status_code == 202
+
+    again = c.post("/documents", files={"file": ("Donations Policy 2024.pdf", MINIMAL_PDF, "application/pdf")})
+    assert again.status_code == 409
+    assert "already in the library" in again.json()["detail"]
+
+
+def test_jobs_are_listed_newest_first_and_fetchable_by_id(client, no_ingest) -> None:
+    c, _ = client
+    first = c.post("/documents", files={"file": ("a.pdf", MINIMAL_PDF, "application/pdf")}).json()
+    second = c.post("/documents", files={"file": ("b.pdf", MINIMAL_PDF, "application/pdf")}).json()
+
+    listed = c.get("/documents/jobs").json()
+    assert [j["filename"] for j in listed] == ["b.pdf", "a.pdf"]
+    assert c.get(f"/documents/jobs/{first['id']}").json()["filename"] == "a.pdf"
+    assert c.get(f"/documents/jobs/{second['id']}").status_code == 200
+    assert c.get("/documents/jobs/nope").status_code == 404
+
+
+def test_deleting_through_the_api_removes_the_pdf_as_well(client, settings) -> None:
+    """A document reaches this library by being uploaded, so removing it means
+    the file too — and leaving it would block re-uploading the same name."""
+    c, engine = client
+    pdf = settings.paths.documents_dir / "Sanctions Compliance Policy.pdf"
+    pdf.parent.mkdir(parents=True, exist_ok=True)
+    pdf.write_bytes(MINIMAL_PDF)
+
+    doc_id = c.get("/documents").json()[0]["id"]
+    body = c.delete(f"/documents/{doc_id}").json()
+
+    assert body["deleted"] is True
+    assert not pdf.exists()
+    assert engine.registry.search("sanctions") == []

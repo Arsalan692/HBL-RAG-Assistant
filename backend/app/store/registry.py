@@ -20,8 +20,10 @@ gone and looks whole.
 
 from __future__ import annotations
 
+import functools
 import json
 import sqlite3
+import threading
 import time
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
@@ -165,6 +167,28 @@ class KeywordHit:
     score: float
 
 
+def guarded(method):
+    """Serialise one method against the connection's own lock.
+
+    The registry guards *itself* rather than relying on whoever holds it. That
+    separation matters under the API: an ingest holds the model lock for the
+    fifteen minutes it takes to read a scanned policy, and listing the library
+    has no business queueing behind that — it touches SQLite for a millisecond
+    and nothing else. One lock for models, one per store, and reads stay
+    answerable while a document is being added.
+
+    Re-entrant because `replace_chunks` opens a transaction and then calls
+    through this again.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._guard:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 class Registry:
     """SQLite-backed document registry and keyword index."""
 
@@ -176,6 +200,7 @@ class Registry:
         every access; nothing else should pass False.
         """
         self.path = path
+        self._guard = threading.RLock()
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, isolation_level=None, check_same_thread=same_thread)
         self._db.row_factory = sqlite3.Row
@@ -232,16 +257,26 @@ class Registry:
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
-        self._db.execute("BEGIN")
-        try:
-            yield self._db
-        except Exception:
-            self._db.execute("ROLLBACK")
-            raise
-        self._db.execute("COMMIT")
+        """A BEGIN/COMMIT with the connection lock held for its whole duration.
+
+        Deliberately *not* decorated with `@guarded`. Wrapping a generator
+        function acquires the lock when the generator is created and releases it
+        before the body ever runs — the decorator would read as protection and
+        provide none, leaving another thread free to interleave writes between
+        BEGIN and COMMIT. The lock has to be taken inside.
+        """
+        with self._guard:
+            self._db.execute("BEGIN")
+            try:
+                yield self._db
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
+            self._db.execute("COMMIT")
 
     # --- documents -----------------------------------------------------------
 
+    @guarded
     def upsert_document(
         self,
         *,
@@ -275,6 +310,7 @@ class Registry:
             },
         )
 
+    @guarded
     def set_status(self, doc_id: str, status: Status, error: str = "") -> None:
         """Move a document along its lifecycle.
 
@@ -287,15 +323,18 @@ class Registry:
         )
         log.info("registry.status", extra={"doc_id": doc_id, "status": status})
 
+    @guarded
     def get(self, doc_id: str) -> DocumentRow | None:
         row = self._db.execute("SELECT * FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
         return _to_document(row) if row else None
 
+    @guarded
     def find_by_hash(self, sha256: str) -> DocumentRow | None:
         """The exact-re-upload check. This corpus already contains one."""
         row = self._db.execute("SELECT * FROM documents WHERE sha256 = ?", (sha256,)).fetchone()
         return _to_document(row) if row else None
 
+    @guarded
     def documents(self, status: str | None = None) -> list[DocumentRow]:
         sql = "SELECT * FROM documents"
         args: tuple[Any, ...] = ()
@@ -305,6 +344,7 @@ class Registry:
         sql += " ORDER BY policy_family, year DESC, title"
         return [_to_document(r) for r in self._db.execute(sql, args)]
 
+    @guarded
     def vintages(self, policy_family: str) -> list[DocumentRow]:
         """Every vintage of one policy, newest first."""
         return [
@@ -317,6 +357,7 @@ class Registry:
 
     # --- which model built the index -----------------------------------------
 
+    @guarded
     def index_fingerprint(self) -> str:
         """The embedder that built the current vectors, or "" if never stamped.
 
@@ -328,6 +369,7 @@ class Registry:
         row = self._db.execute("SELECT fingerprint FROM index_meta WHERE id = 1").fetchone()
         return str(row["fingerprint"]) if row else ""
 
+    @guarded
     def set_index_fingerprint(self, fingerprint: str) -> None:
         self._db.execute(
             """
@@ -339,11 +381,13 @@ class Registry:
         )
         log.info("registry.fingerprint", extra={"fingerprint": fingerprint})
 
+    @guarded
     def clear_index_fingerprint(self) -> None:
         self._db.execute("DELETE FROM index_meta")
 
     # --- chunks --------------------------------------------------------------
 
+    @guarded
     def replace_chunks(
         self, doc_id: str, chunks: Sequence[Chunk], *, identifiers: str = ""
     ) -> int:
@@ -380,12 +424,14 @@ class Registry:
             )
         return len(chunks)
 
+    @guarded
     def chunk_ids(self, doc_id: str) -> list[str]:
         return [
             r["chunk_id"]
             for r in self._db.execute("SELECT chunk_id FROM chunks WHERE doc_id = ?", (doc_id,))
         ]
 
+    @guarded
     def count_chunks(self, doc_id: str | None = None) -> int:
         if doc_id:
             sql, args = "SELECT COUNT(*) FROM chunks WHERE doc_id = ?", (doc_id,)
@@ -395,6 +441,7 @@ class Registry:
 
     # --- keyword search ------------------------------------------------------
 
+    @guarded
     def search(self, query: str, limit: int = 30) -> list[KeywordHit]:
         """BM25 over the chunk text.
 
@@ -434,6 +481,7 @@ class Registry:
 
     # --- deletion ------------------------------------------------------------
 
+    @guarded
     def mark_deleting(self, doc_id: str) -> None:
         """Commit the intent before touching anything that cannot roll back.
 
@@ -443,6 +491,7 @@ class Registry:
         """
         self.set_status(doc_id, "deleting")
 
+    @guarded
     def delete_document(self, doc_id: str) -> bool:
         """Remove the document, its chunks and its keyword entries atomically."""
         with self.transaction() as db:
@@ -452,6 +501,7 @@ class Registry:
             log.info("registry.deleted", extra={"doc_id": doc_id})
         return removed
 
+    @guarded
     def unfinished_deletions(self) -> list[DocumentRow]:
         """Documents a previous run started deleting and did not finish."""
         return self.documents(status="deleting")

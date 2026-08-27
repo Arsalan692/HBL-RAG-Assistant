@@ -152,10 +152,68 @@ function dispatch(frame: string, handlers: ChatHandlers): void {
   }
 }
 
+/** An upload on its way to being answerable. */
+export interface IngestJob {
+  id: string;
+  filename: string;
+  state: "queued" | "extracting" | "chunking" | "indexing" | "ready" | "failed" | "duplicate";
+  /** Human-readable form of `state`, worded by the backend so it says one thing. */
+  label: string;
+  pagesDone: number;
+  pagesTotal: number;
+  chunks: number;
+  docId: string;
+  error: string;
+  duplicateOf: string;
+  done: boolean;
+  seconds: number;
+}
+
 export async function listDocuments(): Promise<DocumentSummary[]> {
   const response = await fetch(`${BASE}/documents`);
   if (!response.ok) throw new Error(`documents: ${response.status}`);
   return (await response.json()) as DocumentSummary[];
+}
+
+export async function listJobs(): Promise<IngestJob[]> {
+  const response = await fetch(`${BASE}/documents/jobs`);
+  if (!response.ok) throw new Error(`jobs: ${response.status}`);
+  return (await response.json()) as IngestJob[];
+}
+
+/**
+ * Send a PDF to be indexed.
+ *
+ * Returns as soon as the file is stored, not when it is searchable — reading a
+ * scanned policy takes minutes. Watch `listJobs` for the rest.
+ *
+ * Refusals come back as a readable message rather than an exception, because
+ * every one of them is something the person can act on: wrong file type, too
+ * large, or a name already in the library.
+ */
+export async function uploadDocument(file: File): Promise<{ job?: IngestJob; error?: string }> {
+  const body = new FormData();
+  body.append("file", file);
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}/documents`, { method: "POST", body });
+  } catch {
+    return { error: `Could not reach the assistant at ${BASE}.` };
+  }
+
+  if (!response.ok) {
+    let detail = `${file.name} was refused (${response.status}).`;
+    try {
+      const payload = await response.json();
+      if (payload?.detail) detail = `${file.name}: ${payload.detail}`;
+    } catch {
+      /* keep the status-based message */
+    }
+    return { error: detail };
+  }
+
+  return { job: (await response.json()) as IngestJob };
 }
 
 export async function deleteDocument(id: string): Promise<void> {

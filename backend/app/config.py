@@ -289,6 +289,12 @@ class OcrSettings(BaseSettings):
     #: for a `list[str]` read from the environment, which is a poor thing to ask
     #: of a .env file.
     languages: str = "en"
+
+    #: How long Ollama holds the vision model. Kept between the pages of one
+    #: document, because reloading ~7.4 GB per page would dominate the run;
+    #: released explicitly when the document finishes, since an idle vision
+    #: model is what starves the next question on a 16 GB machine.
+    keep_alive: str = "30m"
     dpi: int = 300
 
     #: Only the `vlm` engine uses this, and it points at the same Ollama server

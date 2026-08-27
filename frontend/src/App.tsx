@@ -6,10 +6,11 @@ import { Composer } from "@/components/chat/Composer";
 import { EmptyState } from "@/components/chat/EmptyState";
 import { Thread, type StreamingState } from "@/components/chat/Thread";
 import type { RetrievalStep } from "@/components/chat/RetrievalStepper";
+import { DocumentsModal } from "@/components/documents/DocumentsModal";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { SourcePanel } from "@/components/sources/SourcePanel";
 import { THREAD } from "@/data/mock";
-import { askQuestion, type AnswerAudit } from "@/lib/api";
+import { askQuestion, listDocuments, type AnswerAudit } from "@/lib/api";
 import { useIsMobile } from "@/lib/useMediaQuery";
 import type { ActiveCitation, AssistantMessage, Message, Source } from "@/types";
 
@@ -46,6 +47,10 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [documentsOpen, setDocumentsOpen] = useState(false);
+  /** null until the backend has answered — the sidebar says "Documents" rather
+      than "0 documents", which would read as an empty library. */
+  const [documentCount, setDocumentCount] = useState<number | null>(null);
 
   const isMobile = useIsMobile();
   /** Aborts the in-flight answer — on Stop, and on unmount. */
@@ -57,6 +62,17 @@ export default function App() {
   }, []);
 
   useEffect(() => abort, [abort]);
+
+  // Refreshed when the library closes, because that is when it may have
+  // changed. Failure is silent: the count is a convenience, and the modal
+  // reports a backend that is down far better than a sidebar label can.
+  const refreshCount = useCallback(() => {
+    listDocuments()
+      .then((docs) => setDocumentCount(docs.length))
+      .catch(() => setDocumentCount(null));
+  }, []);
+
+  useEffect(refreshCount, [refreshCount]);
 
   const openSource =
     activeCitation === null
@@ -214,6 +230,11 @@ export default function App() {
       setSettingsOpen(true);
       setDrawerOpen(false);
     },
+    onOpenDocuments: () => {
+      setDocumentsOpen(true);
+      setDrawerOpen(false);
+    },
+    documentCount,
   };
 
   return (
@@ -288,6 +309,15 @@ export default function App() {
           ) : (
             <SourcePanel source={openSource} onClose={() => setActiveCitation(null)} />
           ))}
+
+        {documentsOpen && (
+          <DocumentsModal
+            onClose={() => {
+              setDocumentsOpen(false);
+              refreshCount();
+            }}
+          />
+        )}
 
         {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       </div>

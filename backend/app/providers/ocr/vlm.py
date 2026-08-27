@@ -116,7 +116,10 @@ class VlmOCR:
                 "num_predict": 4096,
                 "num_ctx": 8192,
             },
-            "keep_alive": "30m",
+            # Held between pages on purpose: reloading 7.4 GB for every page of
+            # a sixty-page scan would dominate the run. `release()` gives it
+            # back when the document is finished.
+            "keep_alive": self._settings.keep_alive,
         }
         with self._post("/api/chat", payload) as response:
             body = json.loads(response.read().decode("utf-8"))
@@ -314,3 +317,29 @@ def _count_tables(markdown: str) -> int:
         else:
             run = 0
     return count
+
+
+    def release(self) -> bool:
+        """Ask Ollama to unload the vision model now.
+
+        Called when a document is finished. Between pages the model must stay
+        resident — reloading 7.4 GB per page would dominate the run — but
+        afterwards it is 7.4 GB doing nothing, and on a 16 GB machine that is
+        the difference between the next question being answered and the server
+        segfaulting mid-load. Observed exactly that: an ingest completed, left
+        qwen2.5vl:7b resident, and the following chat died with 2.2 GB free.
+
+        Best effort. A failure here costs memory, not correctness.
+        """
+        try:
+            with self._post("/api/generate", {
+                "model": self.model,
+                "prompt": "",
+                "keep_alive": 0,
+            }) as response:
+                response.read()
+            log.info("ocr.released", extra={"model": self.model})
+            return True
+        except Exception as exc:  # noqa: BLE001 - genuinely best effort
+            log.debug("ocr.release_failed", extra={"error": str(exc)[:200]})
+            return False

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   Archive,
-  ChevronDown,
+  ChevronRight,
   Clock,
   Database,
   MoreHorizontal,
@@ -109,11 +109,15 @@ function ExpandedSidebar({
   onSelectChat,
   onNewChat,
   onOpenSettings,
+  onOpenDocuments,
+  documentCount,
 }: {
   activeChatId: string | null;
   onSelectChat: (id: string) => void;
   onNewChat: () => void;
   onOpenSettings: () => void;
+  onOpenDocuments: () => void;
+  documentCount: number | null;
 }) {
   const searchHint = useMemo(() => shortcutLabel("K"), []);
 
@@ -194,42 +198,31 @@ function ExpandedSidebar({
       </nav>
 
       <div className="border-t border-border p-3">
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button
-              type="button"
-              className={cn(
-                "flex w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-2 text-left",
-                "transition-all duration-180 ease-spring outline-none",
-                "hover:bg-black/3 active:scale-99 dark:hover:bg-white/4",
-                "focus-visible:ring-3 focus-visible:ring-[var(--hbl-green-ring)]",
-              )}
-            >
-              <Database size={14} className="shrink-0 text-hbl-green" />
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] uppercase tracking-[0.06em] text-hbl-tertiary">
-                  Knowledge base
-                </p>
-                <p className="truncate text-[13px] font-medium leading-4 text-hbl-primary">
-                  Retail Banking SOPs
-                </p>
-              </div>
-              <ChevronDown size={14} className="shrink-0 text-hbl-tertiary" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content align="start" sideOffset={6} className={cn(MENU_SURFACE, "w-60")}>
-              {["All documents", "Retail Banking SOPs", "AML & Compliance", "Risk & Governance"].map(
-                (kb) => (
-                  <DropdownMenu.Item key={kb} className={menuItemCls()}>
-                    <Database size={14} className="text-hbl-tertiary" />
-                    {kb}
-                  </DropdownMenu.Item>
-                ),
-              )}
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
+        {/* The document library. Not a picker between knowledge bases — there
+            is one corpus, and this is where it is added to and removed from. */}
+        <button
+          type="button"
+          onClick={onOpenDocuments}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-2 text-left",
+            "transition-all duration-180 ease-spring outline-none",
+            "hover:bg-black/3 active:scale-99 dark:hover:bg-white/4",
+            "focus-visible:ring-3 focus-visible:ring-[var(--hbl-green-ring)]",
+          )}
+        >
+          <Database size={14} className="shrink-0 text-hbl-green" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] uppercase tracking-[0.06em] text-hbl-tertiary">
+              Knowledge base
+            </p>
+            <p className="truncate text-[13px] font-medium leading-4 text-hbl-primary">
+              {documentCount === null
+                ? "Documents"
+                : `${documentCount} document${documentCount === 1 ? "" : "s"}`}
+            </p>
+          </div>
+          <ChevronRight size={14} className="shrink-0 text-hbl-tertiary" />
+        </button>
 
         <div className="mt-2 flex items-center gap-2.5 rounded-lg px-1 py-1.5">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-[#E4EBE7] text-xs font-semibold text-hbl-secondary dark:bg-[#252B28]">
@@ -259,9 +252,11 @@ function ExpandedSidebar({
 function CollapsedSidebar({
   onNewChat,
   onOpenSettings,
+  onOpenDocuments,
 }: {
   onNewChat: () => void;
   onOpenSettings: () => void;
+  onOpenDocuments: () => void;
 }) {
   return (
     <>
@@ -292,7 +287,7 @@ function CollapsedSidebar({
       </nav>
 
       <div className="flex flex-col items-center gap-1 border-t border-border p-3">
-        <IconButton label="Knowledge base · Retail Banking SOPs">
+        <IconButton label="Documents" onClick={onOpenDocuments}>
           <Database size={17} className="text-hbl-green" />
         </IconButton>
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-[#E4EBE7] text-xs font-semibold text-hbl-secondary dark:bg-[#252B28]">
@@ -313,6 +308,8 @@ export interface SidebarProps {
   onSelectChat: (id: string) => void;
   onNewChat: () => void;
   onOpenSettings: () => void;
+  onOpenDocuments: () => void;
+  documentCount: number | null;
   collapsed?: boolean;
 }
 
@@ -343,7 +340,11 @@ export function Sidebar({ collapsed = false, ...props }: SidebarProps) {
 
       {collapsed && (
         <div className="flex h-full w-[68px] flex-col animate-overlay-in">
-          <CollapsedSidebar onNewChat={props.onNewChat} onOpenSettings={props.onOpenSettings} />
+          <CollapsedSidebar
+            onNewChat={props.onNewChat}
+            onOpenSettings={props.onOpenSettings}
+            onOpenDocuments={props.onOpenDocuments}
+          />
         </div>
       )}
     </aside>

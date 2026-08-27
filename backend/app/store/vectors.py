@@ -13,6 +13,8 @@ vintage of a policy over the superseded one.
 
 from __future__ import annotations
 
+import functools
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -45,6 +47,23 @@ def _point_id(chunk_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, chunk_id))
 
 
+def guarded(method):
+    """Serialise one method against this store's own lock.
+
+    Same reasoning as the registry's: embedded Qdrant is one client over one
+    directory, and the API serves requests on a thread pool. The store protects
+    itself so that reading the library does not have to wait behind whatever
+    long-running model work happens to hold the engine lock.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._guard:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 class VectorStore:
     """A Qdrant collection holding one point per chunk."""
 
@@ -56,6 +75,7 @@ class VectorStore:
                 "qdrant-client is not installed. Run: pip install qdrant-client"
             ) from exc
 
+        self._guard = threading.RLock()
         self._models = models
         self.collection = collection
         self.dimension = dimension
@@ -120,6 +140,7 @@ class VectorStore:
 
     # --- writing -------------------------------------------------------------
 
+    @guarded
     def upsert(self, chunks: Sequence[Chunk], vectors: Sequence[Sequence[float]]) -> int:
         if len(chunks) != len(vectors):
             raise ValueError(f"{len(chunks)} chunks but {len(vectors)} vectors")
@@ -150,6 +171,7 @@ class VectorStore:
         self._client.upsert(collection_name=self.collection, points=points, wait=True)
         return len(points)
 
+    @guarded
     def delete_document(self, doc_id: str) -> None:
         """Drop every point belonging to one document."""
         models = self._models
@@ -164,6 +186,7 @@ class VectorStore:
         )
         log.info("vectors.deleted", extra={"doc_id": doc_id})
 
+    @guarded
     def drop(self) -> int:
         """Empty the collection. Returns how many points were removed.
 
@@ -195,6 +218,7 @@ class VectorStore:
 
     # --- reading -------------------------------------------------------------
 
+    @guarded
     def search(
         self,
         vector: Sequence[float],
@@ -229,6 +253,7 @@ class VectorStore:
             for p in found
         ]
 
+    @guarded
     def count(self, doc_id: str | None = None) -> int:
         models = self._models
         count_filter = None
@@ -242,5 +267,6 @@ class VectorStore:
             ).count
         )
 
+    @guarded
     def info(self) -> dict[str, Any]:
         return {"collection": self.collection, "dimension": self.dimension, "points": self.count()}

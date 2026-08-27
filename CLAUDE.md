@@ -24,9 +24,11 @@ HTTP: `POST /chat` (SSE), `GET /documents`, `DELETE /documents/{id}`,
 real question streams a cited answer, the stepper shows real counts, citation
 pills open the source panel on the actual excerpt.
 
-What is left is **upload** — `POST /documents` needs a job queue, because
-ingesting one PDF is up to an hour of OCR and cannot be a request that holds a
-connection open. Read `backend/README.md` first.
+**Upload and delete work from the interface.** The library is behind the
+sidebar's knowledge-base button: add PDFs, watch them ingest page by page,
+remove them. Verified end to end — a PDF added through the API answered at 0.995
+relevance, and after removal the same question returned `sources: []` and the
+refusal. Read `backend/README.md` first.
 
 The full ten-phase plan lives in `docs/build-plan.html` — open it in a browser
 rather than reading the raw HTML. It carries the reasoning behind everything
@@ -111,7 +113,7 @@ curl -sN -X POST localhost:8000/chat -H "Content-Type: application/json" \
      -d '{"question":"what is EDD?"}'                           # SSE, frames as they arrive
 ./venv/Scripts/python.exe -m app.cli documents             # what is indexed
 ./venv/Scripts/python.exe -m app.cli delete <doc_id> --yes # remove from both stores and disk
-./venv/Scripts/python.exe -m pytest backend        # 226 tests, no models, corpus or engines needed
+./venv/Scripts/python.exe -m pytest backend        # 240 tests, no models, corpus or engines needed
 
 python brand/make_icons.py                          # regenerate app icons
 ```
@@ -406,21 +408,32 @@ workstation is wanted either way — the Ollama route only defers it.
 
 ## The API
 
-`app/api/` — `hbl serve`. Thin by design: `Answerer.stream` already emits
+`app/api/` — `hbl serve`. `POST /chat` (SSE), `POST /documents` (upload → job),
+`GET /documents/jobs`, `GET /documents`, `DELETE /documents/{id}`, `GET /health`.
+Thin by design: `Answerer.stream` already emits
 events in the order `StreamingState` expects, so `chat.py` mostly translates
 them into SSE frames.
 
-- **One `Engine`, one lock.** Models load once at startup; every route that
-  touches a model or a store goes through `engine.exclusive()`. There is one
-  GPU (or one set of CPU cores), so a second concurrent question would not run
-  twice as fast — it would run both half as fast at double the peak memory,
-  which is how this machine segfaults. The queueing is explicit rather than
-  left to whichever allocation fails first.
-- **`Registry(same_thread=False)` is only safe because of that lock.** FastAPI
-  runs sync endpoints on a thread pool and SQLite refuses cross-thread use by
-  default; the flag alone would move the failure somewhere harder to see.
+- **One `Engine`, and `engine.exclusive()` guards the *models*.** They load once
+  at startup, and anything that runs one — a question, an ingest — takes that
+  lock. There is one GPU (or one set of CPU cores), so a second concurrent
+  question would not run twice as fast; it would run both half as fast at double
+  the peak memory, which is how this machine segfaults. The queueing is explicit
+  rather than left to whichever allocation fails first.
+- **Each store guards its own connection, separately.** Read-only endpoints take
+  no engine lock at all. An ingest holds the model lock for the fifteen minutes
+  it takes to read a scanned policy, and the library must stay listable
+  throughout — that is the screen showing the progress. `Registry(same_thread=
+  False)` is safe because of the store's own lock, not the engine's.
+- **`Registry.transaction` takes its lock inside the generator.** Decorating a
+  `@contextmanager` acquires and releases before the body ever runs, which reads
+  as protection and provides none.
 - **The fingerprint is checked at startup**, so a mismatched index is a server
   that refuses to boot rather than one that answers nonsense confidently.
+- **Upload returns a job id, never the finished document**, and deleting through
+  the API removes the source PDF as well — a document reaches this library by
+  being uploaded, so "remove" means the file, and leaving it would block
+  re-uploading the same name. `hbl delete` still leaves hand-placed PDFs alone.
 - **Nothing is invented to fill a field.** `mock.ts` carries a `department` of
   "Global Compliance" that reads like real metadata and was written to make the
   mock look plausible; the documents have no such field, so the API returns
@@ -441,6 +454,12 @@ not tokens per second.
   laptop that passes 180s and raises, while the identical request takes seconds
   once the model is resident. The error now says so rather than surfacing a
   bare `TimeoutError`.
+- **An ingest must hand the vision model back.** `qwen2.5vl:7b` is 7.4 GB and
+  Ollama held it for 30 minutes after the last page, so the next question tried
+  to load bge-m3 and the reranker with 2.2 GB free and the server segfaulted.
+  It stays resident *between* pages on purpose — reloading it per page would
+  dominate the run — and `VlmOCR.release()` gives it back when the document is
+  finished. Same lesson as the one below, a different model.
 - **On a 16 GB machine, `HBL_LLM_KEEP_ALIVE=0`.** This is the one that actually
   crashed the API three times, and the diagnosis moved twice before landing.
   Ollama holds qwen3:8b's ~4.8 GB for 30 minutes after answering, so the *next*

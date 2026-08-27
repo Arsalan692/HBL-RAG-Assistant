@@ -94,6 +94,46 @@ class DocumentSummary(BaseModel):
         )
 
 
+class IngestJob(BaseModel):
+    """An upload on its way to being answerable."""
+
+    id: str
+    filename: str
+    state: str
+    #: Human-readable version of `state`, so the wording lives in one place.
+    label: str
+    #: Pages read so far, and how many there are. A total of 0 means "not
+    #: counted yet" rather than "an empty document".
+    pagesDone: int = 0
+    pagesTotal: int = 0
+    chunks: int = 0
+    docId: str = ""
+    error: str = ""
+    #: Set when the file was byte-identical to something already indexed.
+    duplicateOf: str = ""
+    done: bool = False
+    seconds: float = 0.0
+
+    @classmethod
+    def of(cls, job) -> IngestJob:  # noqa: ANN001 - avoids importing jobs here
+        import time
+
+        return cls(
+            id=job.id,
+            filename=job.filename,
+            state=job.state,
+            label=job.label,
+            pagesDone=job.pages_done,
+            pagesTotal=job.pages_total,
+            chunks=job.chunks,
+            docId=job.doc_id,
+            error=job.error,
+            duplicateOf=job.duplicate_of,
+            done=job.done,
+            seconds=round((job.finished_at or time.time()) - job.started_at, 1),
+        )
+
+
 class DeleteResponse(BaseModel):
     id: str
     deleted: bool

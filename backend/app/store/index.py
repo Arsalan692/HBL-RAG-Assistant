@@ -187,8 +187,17 @@ def delete_document(
     vectors: VectorStore,
     settings: Settings,
     remove_files: bool = True,
+    remove_source: bool = False,
 ) -> DeleteResult:
-    """Remove every trace of a document from both stores and from disk."""
+    """Remove every trace of a document from both stores and from disk.
+
+    `remove_source` also deletes the original PDF, and defaults to off. The
+    distinction is about who owns the file: documents put in `data/documents/`
+    by hand are the operator's copy and deleting them would be a surprise,
+    while a document uploaded through the interface was put there by this
+    system and "remove it" plainly means the file too — otherwise it lingers
+    and blocks re-uploading the same name.
+    """
     result = DeleteResult(doc_id=doc_id)
     row = registry.get(doc_id)
     if row is None:
@@ -212,6 +221,8 @@ def delete_document(
     #    so "deleted" has to mean gone from disk, not just unindexed.
     if remove_files:
         result.files_removed = _remove_derived_files(doc_id, row.source_name, settings)
+    if remove_source:
+        result.files_removed += _remove_source_pdf(row.source_name, settings)
 
     log.info(
         "index.deleted",
@@ -246,6 +257,28 @@ def _remove_derived_files(doc_id: str, source_name: str, settings: Settings) -> 
         except OSError as exc:  # a locked file should not abort the delete
             log.warning("index.file_not_removed", extra={"path": str(path), "error": str(exc)})
     return removed
+
+
+def _remove_source_pdf(source_name: str, settings: Settings) -> list[str]:
+    """Delete the original PDF this document was built from.
+
+    Matched by the exact name extraction recorded, never by a glob: a wrong
+    pattern here deletes somebody else's document, and unlike the derived files
+    the PDF may be the only copy.
+    """
+    documents = settings.paths.documents_dir
+    if documents is None or not source_name:
+        return []
+
+    path = documents / Path(source_name).name
+    try:
+        if path.exists() and path.parent.resolve() == documents.resolve():
+            path.unlink()
+            log.info("index.source_removed", extra={"file": path.name})
+            return [path.name]
+    except OSError as exc:
+        log.warning("index.source_not_removed", extra={"path": str(path), "error": str(exc)})
+    return []
 
 
 def _slug(name: str) -> str:
