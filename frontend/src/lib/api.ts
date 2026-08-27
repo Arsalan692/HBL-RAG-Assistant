@@ -18,7 +18,30 @@
 
 import type { Source } from "@/types";
 
-const BASE = (import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000").replace(/\/$/, "");
+/**
+ * Where the backend is.
+ *
+ * Same origin normally, because `hbl serve` serves this build itself — one
+ * command, one port, no CORS. The exception is Vite's dev server on 5173,
+ * which serves the page but not the API, so there the backend is a separate
+ * process on 8000.
+ *
+ * `VITE_API_BASE` overrides both, for the case where the API runs on the GPU
+ * workstation and the browser does not.
+ */
+function resolveBase(): string {
+  const configured = import.meta.env.VITE_API_BASE;
+  if (configured) return configured.replace(/\/$/, "");
+  if (typeof window !== "undefined" && window.location.port === "5173") {
+    return "http://127.0.0.1:8000";
+  }
+  return "";
+}
+
+const BASE = resolveBase();
+
+/** For error messages: an empty base means "this server", which reads as nothing. */
+const WHERE = BASE || window.location.origin;
 
 export type Step = "searching" | "reading" | "composing";
 
@@ -78,7 +101,7 @@ export async function askQuestion(
   } catch (error) {
     if (signal?.aborted) return;
     handlers.onError(
-      `Could not reach the assistant at ${BASE}. Is the backend running? Start it with \`hbl serve\`.`,
+      `Could not reach the assistant at ${WHERE}. Is the backend running? Start it with \`hbl serve\`.`,
     );
     return;
   }
@@ -199,7 +222,7 @@ export async function uploadDocument(file: File): Promise<{ job?: IngestJob; err
   try {
     response = await fetch(`${BASE}/documents`, { method: "POST", body });
   } catch {
-    return { error: `Could not reach the assistant at ${BASE}.` };
+    return { error: `Could not reach the assistant at ${WHERE}.` };
   }
 
   if (!response.ok) {

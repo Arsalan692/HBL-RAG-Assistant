@@ -81,8 +81,13 @@ These are settled. Do not propose alternatives.
 Windows paths contain spaces — quote them.
 
 ```bash
-# Frontend (from frontend/)
-npm install
+# Running the product: one command, one port. `hbl serve` serves the built
+# frontend from frontend/dist as well as the API, so there is nothing else to
+# start. Build the interface once (and after any change to it):
+cd frontend && npm install && npm run build
+
+# Frontend development (hot reload; needs `hbl serve` running separately for
+# the API, which is why 5173 is the one origin CORS allows)
 npm run dev              # http://localhost:5173
 npm run build
 npx tsc --noEmit         # type-check; there is no lint or test runner yet
@@ -108,12 +113,14 @@ npx tsc --noEmit         # type-check; there is no lint or test runner yet
 ./venv/Scripts/python.exe -m app.cli search "CDD" --text --no-rerank  # show snippets / fusion order only
 ./venv/Scripts/python.exe -m app.cli ask "what is EDD?"         # ...and stream a cited answer
 ./venv/Scripts/python.exe -m app.cli ask "..." --model qwen3:8b # override the generation model
-./venv/Scripts/python.exe -m app.cli serve                      # the API — http://127.0.0.1:8000, /docs
+./venv/Scripts/python.exe -m app.cli serve                      # THE WHOLE APP — http://127.0.0.1:8000
+#   serves frontend/dist too, so this is the only command needed. Rebuild the
+#   interface after changing it:  cd frontend && npm run build
 curl -sN -X POST localhost:8000/chat -H "Content-Type: application/json" \
      -d '{"question":"what is EDD?"}'                           # SSE, frames as they arrive
 ./venv/Scripts/python.exe -m app.cli documents             # what is indexed
 ./venv/Scripts/python.exe -m app.cli delete <doc_id> --yes # remove from both stores and disk
-./venv/Scripts/python.exe -m pytest backend        # 240 tests, no models, corpus or engines needed
+./venv/Scripts/python.exe -m pytest backend        # 243 tests, no models, corpus or engines needed
 
 python brand/make_icons.py                          # regenerate app icons
 ```

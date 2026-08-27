@@ -748,14 +748,22 @@ def cmd_serve(args: argparse.Namespace, settings: Settings) -> int:
         )
         return 2
 
-    from app.api.app import create_app
+    from app.api.app import create_app, frontend_dist
 
     host = args.host or settings.api.host
     port = args.port or settings.api.port
+    dist = frontend_dist()
+    built = (dist / "index.html").exists()
 
-    print(f"\n  HBL Policy Assistant API")
-    print(f"  http://{host}:{port}      docs at /docs")
-    print(f"  allowing origins: {', '.join(settings.api.origin_list)}")
+    print("\n  HBL Policy Assistant")
+    if built:
+        print(f"  Open  http://{host}:{port}")
+        print(f"  API   http://{host}:{port}/docs")
+    else:
+        print(f"  API   http://{host}:{port}/docs")
+        print("\n  The interface is not built, so this serves the API only.")
+        print("  To get the app on this address too, build it once:")
+        print("      cd frontend && npm install && npm run build")
     print("\n  Loading models — the first request is not the slow one, this is.\n")
 
     uvicorn.run(

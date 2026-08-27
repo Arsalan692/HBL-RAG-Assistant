@@ -13,16 +13,18 @@ would let any page in the browser read bank policy through this port.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.chat import router as chat_router
 from app.api.documents import router as documents_router
 from app.api.engine import Engine
 from app.api.jobs import JobRegistry
-from app.config import Settings, get_settings
+from app.config import ROOT_DIR, Settings, get_settings
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -62,4 +64,34 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
 
     application.include_router(chat_router)
     application.include_router(documents_router)
+
+    # The interface, served by the same process on the same port. Mounted last
+    # so every API route above wins the match — a static mount at "/" is a
+    # catch-all, and mounting it first would swallow /chat.
+    _mount_interface(application)
     return application
+
+
+def frontend_dist() -> Path:
+    """Where `npm run build` puts the interface."""
+    return ROOT_DIR / "frontend" / "dist"
+
+
+def _mount_interface(application: FastAPI) -> None:
+    """Serve the built frontend at `/`, if it has been built.
+
+    One command and one port for the whole product, which also removes CORS
+    from the picture entirely: the page and the API share an origin, so the
+    browser has nothing to check.
+
+    Absence is not an error. The workstation may run this purely to ingest and
+    answer over HTTP, and a missing `dist/` should leave a working API rather
+    than a server that refuses to start. `hbl serve` says how to build it.
+    """
+    dist = frontend_dist()
+    if not (dist / "index.html").exists():
+        log.info("api.no_interface", extra={"looked_in": str(dist)})
+        return
+
+    application.mount("/", StaticFiles(directory=dist, html=True), name="interface")
+    log.info("api.interface_mounted", extra={"directory": str(dist)})

@@ -462,3 +462,45 @@ def test_deleting_through_the_api_removes_the_pdf_as_well(client, settings) -> N
     assert body["deleted"] is True
     assert not pdf.exists()
     assert engine.registry.search("sanctions") == []
+
+
+# --- the interface, served by the same process --------------------------------
+
+
+def test_api_routes_are_not_swallowed_by_the_static_mount(client) -> None:
+    """The interface is mounted at "/", which is a catch-all. Mounted before the
+    routers it would answer /chat and /documents with index.html, and the app
+    would fail in a way that looks like the backend being missing."""
+    c, _ = client
+    assert c.get("/documents").status_code == 200
+    assert c.get("/health").status_code == 200
+    assert c.get("/documents/jobs").status_code == 200
+
+
+def test_a_missing_build_leaves_a_working_api(settings, monkeypatch, tmp_path) -> None:
+    """The workstation may run this purely to ingest and answer over HTTP. An
+    unbuilt frontend should not stop the server from starting."""
+    monkeypatch.setattr("app.api.app.frontend_dist", lambda: tmp_path / "nothing-here")
+
+    engine = StubEngine(settings)
+    _seed(engine, title="Sanctions Compliance Policy", year=2025, family="sanctions")
+    with TestClient(create_app(settings, engine=engine)) as c:
+        assert c.get("/health").json()["ok"] is True
+        assert c.get("/documents").status_code == 200
+
+
+def test_the_interface_is_served_when_it_has_been_built(settings, monkeypatch, tmp_path) -> None:
+    """One command, one port: `hbl serve` answers both the page and the API,
+    which is also why the page needs no CORS — it shares their origin."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<title>HBL RAG Assistant</title>", encoding="utf-8")
+    monkeypatch.setattr("app.api.app.frontend_dist", lambda: dist)
+
+    engine = StubEngine(settings)
+    with TestClient(create_app(settings, engine=engine)) as c:
+        page = c.get("/")
+        assert page.status_code == 200
+        assert "HBL RAG Assistant" in page.text
+        # ...and the API still wins its own paths.
+        assert c.get("/health").json()["ok"] is True
