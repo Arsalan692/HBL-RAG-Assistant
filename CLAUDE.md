@@ -20,10 +20,13 @@ runs end to end from PDF to a cited answer, and `hbl serve` exposes it over
 HTTP: `POST /chat` (SSE), `GET /documents`, `DELETE /documents/{id}`,
 `GET /health`. Verified against the real index — 19 documents, 901 chunks.
 
-What is left is **wiring the frontend to it** (replace the simulated stream in
-`frontend/src/App.tsx`), then **upload** — `POST /documents` needs a job queue,
-because ingesting one PDF is up to an hour of OCR and cannot be a request that
-holds a connection open. Read `backend/README.md` first.
+**The frontend is wired to it and works end to end**, verified in a browser: a
+real question streams a cited answer, the stepper shows real counts, citation
+pills open the source panel on the actual excerpt.
+
+What is left is **upload** — `POST /documents` needs a job queue, because
+ingesting one PDF is up to an hour of OCR and cannot be a request that holds a
+connection open. Read `backend/README.md` first.
 
 The full ten-phase plan lives in `docs/build-plan.html` — open it in a browser
 rather than reading the raw HTML. It carries the reasoning behind everything
@@ -438,6 +441,14 @@ not tokens per second.
   laptop that passes 180s and raises, while the identical request takes seconds
   once the model is resident. The error now says so rather than surfacing a
   bare `TimeoutError`.
+- **On a 16 GB machine, `HBL_LLM_KEEP_ALIVE=0`.** This is the one that actually
+  crashed the API three times, and the diagnosis moved twice before landing.
+  Ollama holds qwen3:8b's ~4.8 GB for 30 minutes after answering, so the *next*
+  question's retrieval loads bge-m3 and the reranker on top of it — and the app
+  needs a browser, which wants another ~2 GB. Free memory hit 2.8 GB and the
+  process segfaulted mid-load: exit 139, no exception, no message. Unloading
+  after each answer costs a full model load per question and is what makes the
+  laptop usable at all. The workstation keeps 30m.
 - **`HBL_LLM_WARM_AHEAD` is a trade, and the devices want opposite answers.**
   Loading the weights alongside retrieval is free on CUDA and buys seconds off
   the first token. On CPU it makes the LLM's ~4.9 GB resident *during*

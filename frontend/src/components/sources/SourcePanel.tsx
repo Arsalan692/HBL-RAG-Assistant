@@ -4,7 +4,17 @@ import { IconButton } from "@/components/common/IconButton";
 import { cn } from "@/lib/utils";
 import type { Source } from "@/types";
 
+/**
+ * One metadata row, or nothing.
+ *
+ * Not every document states every field — the corpus has no "department" at
+ * all, and only two policies carry a circular number. The API returns an empty
+ * string rather than inventing something plausible, so an empty row here means
+ * "the document does not say", and printing a blank value would look like a
+ * bug rather than an absence.
+ */
 function MetaRow({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
   return (
     <div className="flex items-baseline justify-between gap-4 py-2">
       <dt className="shrink-0 text-[11px] uppercase tracking-[0.06em] text-hbl-tertiary">

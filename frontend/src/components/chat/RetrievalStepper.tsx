@@ -7,8 +7,13 @@ const ORDER: Exclude<RetrievalStep, "done">[] = ["searching", "reading", "compos
 
 /**
  * Shown above an answer while it is being produced, so the wait is legible
- * rather than a blank pause. The counts come from the backend once retrieval
- * is real; until then they are illustrative.
+ * rather than a blank pause. On a CPU-only machine that wait is minutes, which
+ * makes this the only thing telling a reader the system is alive.
+ *
+ * The counts arrive with the backend's `sources` event, and that event lands
+ * *after* searching is already underway — so during the first step there is
+ * genuinely nothing to count yet. A bare "Searching" is honest; "Searching 0
+ * documents" reads like a system that found nothing.
  */
 export function RetrievalStepper({
   step,
@@ -20,8 +25,8 @@ export function RetrievalStepper({
   sourceCount: number;
 }) {
   const labels: Record<Exclude<RetrievalStep, "done">, string> = {
-    searching: `Searching ${documentCount.toLocaleString()} documents`,
-    reading: `Reading ${sourceCount} sources`,
+    searching: documentCount > 0 ? `Searched ${documentCount.toLocaleString()} documents` : "Searching",
+    reading: sourceCount > 0 ? `Reading ${sourceCount} sources` : "Reading",
     composing: "Composing",
   };
 

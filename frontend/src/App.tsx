@@ -8,17 +8,34 @@ import { Thread, type StreamingState } from "@/components/chat/Thread";
 import type { RetrievalStep } from "@/components/chat/RetrievalStepper";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { SourcePanel } from "@/components/sources/SourcePanel";
-import { STREAMED_ANSWER, THREAD } from "@/data/mock";
+import { THREAD } from "@/data/mock";
+import { askQuestion, type AnswerAudit } from "@/lib/api";
 import { useIsMobile } from "@/lib/useMediaQuery";
 import type { ActiveCitation, AssistantMessage, Message, Source } from "@/types";
 
-/** Pacing of the simulated answer. Replaced by real SSE events in Phase 06. */
-const STEP_DELAYS: { at: number; step: RetrievalStep }[] = [
-  { at: 900, step: "reading" },
-  { at: 1900, step: "composing" },
-];
-const TYPE_INTERVAL_MS = 26;
-const WORDS_PER_TICK = 2;
+/**
+ * A note the reader needs that the answer itself did not give them.
+ *
+ * The backend reports, separately from the text, when the model cited a
+ * superseded edition or invented a citation. Both have happened repeatedly and
+ * neither is visible in the prose — which is exactly why they are appended
+ * here rather than left to the model to mention.
+ */
+function auditNote(audit: AnswerAudit): string {
+  const notes: string[] = [];
+  if (audit.superseded.length > 0) {
+    const which = audit.superseded.map((n) => `[${n}]`).join(" ");
+    notes.push(
+      `**Superseded sources cited: ${which}.** A newer edition of that policy is also indexed — check the current one before acting on this.`,
+    );
+  }
+  if (audit.invented.length > 0) {
+    notes.push(
+      `**${audit.invented.length} citation(s) referred to sources that were never retrieved, and were removed.** Treat the surrounding claims with care.`,
+    );
+  }
+  return notes.length > 0 ? `\n\n---\n\n${notes.join("\n\n")}` : "";
+}
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -31,19 +48,15 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const isMobile = useIsMobile();
-  const timers = useRef<number[]>([]);
-  const interval = useRef<number | null>(null);
+  /** Aborts the in-flight answer — on Stop, and on unmount. */
+  const inFlight = useRef<AbortController | null>(null);
 
-  const clearTimers = useCallback(() => {
-    timers.current.forEach(window.clearTimeout);
-    timers.current = [];
-    if (interval.current !== null) {
-      window.clearInterval(interval.current);
-      interval.current = null;
-    }
+  const abort = useCallback(() => {
+    inFlight.current?.abort();
+    inFlight.current = null;
   }, []);
 
-  useEffect(() => clearTimers, [clearTimers]);
+  useEffect(() => abort, [abort]);
 
   const openSource =
     activeCitation === null
@@ -54,79 +67,100 @@ export default function App() {
           ?.sources.find((s) => s.id === activeCitation.sourceId) ?? null);
 
   /** Commits a finished (or stopped) answer into the thread. */
-  const commit = useCallback((question: string, content: string) => {
+  const commit = useCallback((question: string, content: string, sources: Source[]) => {
     const stamp = Date.now();
     setMessages((prev) => [
       ...prev,
       { id: `u-${stamp}`, role: "user", content: question },
-      {
-        id: `a-${stamp}`,
-        role: "assistant",
-        content,
-        sources: STREAMED_ANSWER.sources,
-      },
+      { id: `a-${stamp}`, role: "assistant", content, sources },
     ]);
     setStreaming(null);
   }, []);
 
   /**
-   * Simulates retrieval and generation: the stepper advances, then the answer
-   * is revealed a couple of words at a time. Swapped for the real SSE stream
-   * once the backend exists — the component tree does not change.
+   * Asks the backend and renders the answer as it is written.
+   *
+   * The stepper and the citation pills are driven by the stream's own events
+   * rather than by timers: `sources` always arrives before the first `delta`,
+   * so a `[1]` in the opening sentence has something to point at.
+   *
+   * Answers are slow — a CPU-only machine takes minutes — which is why the
+   * partial text is committed on every delta rather than batched.
    */
   const send = useCallback(
     (question: string) => {
-      clearTimers();
+      const trimmed = question.trim();
+      if (!trimmed) return;
+
+      abort();
+      const controller = new AbortController();
+      inFlight.current = controller;
+
       setDraft("");
       setActiveCitation(null);
       setActiveChatId((id) => id ?? "c1");
       setStreaming({
-        question,
+        question: trimmed,
         step: "searching",
         partial: "",
-        documentCount: 1248,
-        sourceCount: STREAMED_ANSWER.sources.length,
-        sources: STREAMED_ANSWER.sources,
+        documentCount: 0,
+        sourceCount: 0,
+        sources: [],
       });
 
-      STEP_DELAYS.forEach(({ at, step }) => {
-        timers.current.push(
-          window.setTimeout(() => setStreaming((s) => (s ? { ...s, step } : s)), at),
-        );
-      });
+      // Held outside React state so the final commit sees them without
+      // depending on a re-render having landed first.
+      let sources: Source[] = [];
+      let answer = "";
 
-      timers.current.push(
-        window.setTimeout(() => {
-          const words = STREAMED_ANSWER.content.split(/(\s+)/);
-          let cursor = 0;
-
-          interval.current = window.setInterval(() => {
-            cursor += WORDS_PER_TICK * 2; // words and their separators
-            const partial = words.slice(0, cursor).join("");
-
-            if (cursor >= words.length) {
-              clearTimers();
-              commit(question, STREAMED_ANSWER.content);
-              return;
-            }
-            setStreaming((s) => (s ? { ...s, partial } : s));
-          }, TYPE_INTERVAL_MS);
-        }, STEP_DELAYS[STEP_DELAYS.length - 1].at),
+      void askQuestion(
+        trimmed,
+        {
+          onStep: (step) => setStreaming((s) => (s ? { ...s, step: step as RetrievalStep } : s)),
+          onSources: (incoming, documentCount) => {
+            sources = incoming;
+            setStreaming((s) =>
+              s ? { ...s, sources: incoming, sourceCount: incoming.length, documentCount } : s,
+            );
+          },
+          onDelta: (text) => {
+            answer += text;
+            setStreaming((s) => (s ? { ...s, partial: answer } : s));
+          },
+          onDone: (audit) => {
+            inFlight.current = null;
+            commit(trimmed, answer + auditNote(audit), sources);
+          },
+          onError: (message) => {
+            inFlight.current = null;
+            // Whatever arrived is real and worth keeping; the failure is
+            // appended rather than replacing it.
+            const body = answer ? `${answer}\n\n---\n\n**${message}**` : `**${message}**`;
+            commit(trimmed, body, sources);
+          },
+        },
+        controller.signal,
       );
     },
-    [clearTimers, commit],
+    [abort, commit],
   );
 
   const stop = useCallback(() => {
-    clearTimers();
+    abort();
     setStreaming((s) => {
-      if (s) commit(s.question, s.partial || "_Generation stopped before an answer was produced._");
+      if (s) {
+        commit(
+          s.question,
+          s.partial || "_Stopped before an answer was produced._",
+          s.sources,
+        );
+      }
       return null;
     });
-  }, [clearTimers, commit]);
+  }, [abort, commit]);
 
   function loadConversation(id: string) {
-    clearTimers();
+    abort();
     setStreaming(null);
     setMessages(THREAD);
     setActiveChatId(id);
@@ -136,7 +170,7 @@ export default function App() {
   }
 
   function newChat() {
-    clearTimers();
+    abort();
     setStreaming(null);
     setMessages([]);
     setActiveChatId(null);

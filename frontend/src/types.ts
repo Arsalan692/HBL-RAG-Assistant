@@ -20,6 +20,17 @@ export interface Source {
   department: string;
   effectiveDate: string;
   version: string;
+  /**
+   * True when a newer edition of the same policy is also indexed.
+   *
+   * Retrieval keeps superseded passages on purpose — where two editions
+   * differ, that difference is usually the answer — so the interface has to
+   * say which is which. The model has repeatedly cited one of these without
+   * mentioning it was replaced, which is why this is shown rather than trusted
+   * to the answer text.
+   */
+  superseded?: boolean;
+
   /** The retrieved chunk itself — highlighted in the source panel. */
   excerpt: string;
   /** Surrounding page text, shown unhighlighted for context. */
