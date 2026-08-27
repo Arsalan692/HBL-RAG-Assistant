@@ -486,8 +486,9 @@ def _open_stores(settings: Settings):
 
 
 def cmd_index(args: argparse.Namespace, settings: Settings) -> int:
+    from app.errors import IndexMismatch
     from app.ingest.pipeline import chunk_corpus
-    from app.store.index import index_document, purge_unfinished
+    from app.store.index import ensure_same_embedder, index_document, purge_unfinished
 
     if args.embedder:
         settings = settings.model_copy(
@@ -499,6 +500,15 @@ def cmd_index(args: argparse.Namespace, settings: Settings) -> int:
 
     store, vectors = _open_stores(settings)
     try:
+        # Before anything is written, and before the weights are paid for: the
+        # one check that stops two models' vectors sharing a collection.
+        try:
+            if note := ensure_same_embedder(store, vectors, embedder, reset=args.reset):
+                print(f"  {note}\n")
+        except IndexMismatch as exc:
+            print(f"\n  {exc}\n", file=sys.stderr)
+            return 2
+
         if resumed := purge_unfinished(store, vectors, settings):
             print(f"  finished {len(resumed)} deletion(s) a previous run left half-done\n")
 
@@ -627,6 +637,183 @@ def cmd_delete(args: argparse.Namespace, settings: Settings) -> int:
         still = [h for h in remaining if h.doc_id == args.doc_id]
         print(f"  Keyword index now returns {len(still)} fragment(s) of it.")
         print(f"  Vector store now holds {vectors.count(args.doc_id)} of its points.\n")
+        return 0
+    finally:
+        store.close()
+        vectors.close()
+
+
+# --- search ------------------------------------------------------------------
+
+
+def cmd_search(args: argparse.Namespace, settings: Settings) -> int:
+    """Run one query through the full retrieval pipeline and show its working.
+
+    Every stage is printed, not just the answer, because the interesting
+    failures here are invisible in the final list: a query that only keyword
+    search found, a superseded clause outranking the current one, or eight
+    passages that all came from the same page.
+    """
+    from app.errors import IndexMismatch, ProviderError
+    from app.retrieve import Retriever
+    from app.store.index import ensure_same_embedder
+
+    embedder = registry.load_embedder(settings)
+
+    reranker = None
+    if not args.no_rerank:
+        try:
+            reranker = registry.load_reranker(settings)
+        except ProviderError as exc:
+            # stderr throughout, so `--json` stays pipeable when this fires.
+            print(
+                f"\n  Reranking unavailable: {exc}\n\n"
+                "  Continuing on fusion order alone — the scores below are RRF, not\n"
+                "  relevance, and the refusal threshold is not applied.\n",
+                file=sys.stderr,
+            )
+
+    store, vectors = _open_stores(settings)
+    try:
+        try:
+            ensure_same_embedder(store, vectors, embedder)
+        except IndexMismatch as exc:
+            print(f"\n  {exc}\n", file=sys.stderr)
+            return 2
+
+        retriever = Retriever(
+            registry=store, vectors=vectors, embedder=embedder,
+            reranker=reranker, settings=settings,
+        )
+        result = retriever.search(" ".join(args.query), top_k=args.top_k)
+
+        if args.json:
+            from dataclasses import asdict
+
+            print(json.dumps(asdict(result), indent=2))
+            return 0
+
+        print(f"\n  {result.query}")
+        print(
+            f"  dense {result.dense_found} + keyword {result.keyword_found} "
+            f"→ fused {result.fused} → kept {len(result.passages)}   {result.seconds}s\n"
+        )
+
+        if result.refused:
+            print("  Nothing cleared the relevance threshold.")
+            print("  The answer for this query should be a refusal, not a guess.\n")
+            return 0
+
+        for n, passage in enumerate(result.passages, 1):
+            flag = "  SUPERSEDED" if passage.superseded else ""
+            vintage = f" {passage.year}" if passage.year else ""
+            print(f"  [{n}] {passage.score:.3f}  {passage.found_by:<8} p.{passage.page:<4}"
+                  f"{passage.title[:44]}{vintage}{flag}")
+            if passage.section:
+                print(f"       {passage.section[:70]}")
+            if args.text:
+                body = " ".join(passage.text.split())
+                print(f"       {body[:220]}{'...' if len(body) > 220 else ''}")
+            print()
+
+        print(f"  {result.document_count} document(s)")
+        if result.vintage_conflicts:
+            print(
+                f"  Two vintages present for: {', '.join(result.vintage_conflicts)}.\n"
+                "  Both are kept — where they disagree, that disagreement is the answer."
+            )
+        print()
+        return 0
+    finally:
+        store.close()
+        vectors.close()
+
+
+# --- ask ---------------------------------------------------------------------
+
+
+def cmd_ask(args: argparse.Namespace, settings: Settings) -> int:
+    """Ask a question and stream the grounded answer, as the API will.
+
+    Prints the citation audit afterwards, which is the part worth watching:
+    an invented citation means the model wrote a number no passage backed, and
+    a large unused count means retrieval handed over more than the answer
+    needed — the cheapest speed knob in the system.
+    """
+    from app.errors import IndexMismatch, ProviderError
+    from app.generate import Answerer
+    from app.retrieve import Retriever
+    from app.store.index import ensure_same_embedder
+
+    if args.model:
+        settings = settings.model_copy(
+            update={"llm": settings.llm.model_copy(update={"model": args.model})}
+        )
+
+    embedder = registry.load_embedder(settings)
+    llm = registry.load_llm(settings)
+
+    reranker = None
+    try:
+        reranker = registry.load_reranker(settings)
+    except ProviderError as exc:
+        print(f"\n  Reranking unavailable: {exc}\n", file=sys.stderr)
+
+    store, vectors = _open_stores(settings)
+    try:
+        try:
+            ensure_same_embedder(store, vectors, embedder)
+        except IndexMismatch as exc:
+            print(f"\n  {exc}\n", file=sys.stderr)
+            return 2
+
+        answerer = Answerer(
+            retriever=Retriever(
+                registry=store, vectors=vectors, embedder=embedder,
+                reranker=reranker, settings=settings,
+            ),
+            llm=llm,
+            settings=settings,
+        )
+
+        from app.generate.answer import AnswerResult
+
+        question = " ".join(args.question)
+        # Passed into the stream so the audit below sees what was actually
+        # emitted, rather than re-deriving it from the printed text.
+        result = AnswerResult(question=question)
+
+        print(f"\n  {question}\n")
+        for event in answerer.stream(question, into=result):
+            if event.kind == "step":
+                print(f"  … {event.value}", end="\r", flush=True, file=sys.stderr)
+            elif event.kind == "sources":
+                print(" " * 30, end="\r", file=sys.stderr)
+                for source in event.sources:
+                    mark = " SUPERSEDED" if source.superseded else ""
+                    year = f" {source.year}" if source.year else ""
+                    print(f"  [{source.index}] {source.relevance:.3f}  p.{source.page:<4}"
+                          f"{source.title[:44]}{year}{mark}")
+                print()
+            elif event.kind == "delta":
+                print(event.value, end="", flush=True)
+            elif event.kind == "error":
+                print(f"\n\n  Generation failed: {event.value}\n", file=sys.stderr)
+                return 1
+
+        print("\n")
+        if result.refused:
+            print("  Refused — nothing retrieved cleared the relevance threshold.\n")
+            return 0
+
+        print(f"  {len(result.sources)} source(s), retrieval {result.retrieval_seconds}s, "
+              f"total {result.seconds}s")
+        if result.invented_citations:
+            print(f"  INVENTED citations, stripped: {result.invented_citations} — "
+                  "the model cited passages that were never supplied.")
+        if result.unused_sources:
+            print(f"  Unused sources: {result.unused_sources}")
+        print()
         return 0
     finally:
         store.close()
@@ -920,8 +1107,30 @@ def build_parser() -> argparse.ArgumentParser:
     index = sub.add_parser("index", help="embed chunks into the vector store and registry")
     index.add_argument("paths", nargs="*", help="parsed .md files (default: all)")
     index.add_argument("--embedder", help="override HBL_EMBEDDING_PROVIDER for this run")
+    index.add_argument(
+        "--reset",
+        action="store_true",
+        help="drop the collection and rebuild it — needed after changing embedder",
+    )
     index.add_argument("--json", action="store_true")
     index.set_defaults(handler=cmd_index)
+
+    search = sub.add_parser("search", help="run a query through the retrieval pipeline")
+    search.add_argument("query", nargs="+", help="the question, unquoted is fine")
+    search.add_argument("--top-k", type=int, help="override HBL_RETRIEVAL_RERANK_TOP_K")
+    search.add_argument("--text", action="store_true", help="show a snippet of each passage")
+    search.add_argument(
+        "--no-rerank",
+        action="store_true",
+        help="stop after fusion — shows what reranking is actually changing",
+    )
+    search.add_argument("--json", action="store_true")
+    search.set_defaults(handler=cmd_search)
+
+    ask = sub.add_parser("ask", help="retrieve, ground and stream an answer")
+    ask.add_argument("question", nargs="+", help="the question, unquoted is fine")
+    ask.add_argument("--model", help="override HBL_LLM_MODEL for this run")
+    ask.set_defaults(handler=cmd_ask)
 
     documents = sub.add_parser("documents", help="what is indexed, and in what state")
     documents.add_argument("--status", help="only documents in this state")

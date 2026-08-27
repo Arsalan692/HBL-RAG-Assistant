@@ -16,13 +16,21 @@ from app.errors import ConfigError
 
 
 def test_defaults_match_the_settled_decisions():
-    settings = Settings()
-    assert settings.llm.model == "qwen3:14b"
-    assert settings.embedding.model == "BAAI/bge-m3"
-    assert settings.reranker.model == "BAAI/bge-reranker-v2-m3"
+    """`_env_file=None` on purpose: these are the values baked into the code.
+
+    A developer's real `.env` points the model settings at wherever the weights
+    live on their machine, which is the whole reason the file exists. Reading it
+    here would make the suite fail on any machine that had configured itself.
+    """
+    from app.config import EmbeddingSettings, RerankerSettings, RetrievalSettings
+
+    assert LLMSettings(_env_file=None).model == "qwen3:14b"
+    assert EmbeddingSettings(_env_file=None).model == "BAAI/bge-m3"
+    assert RerankerSettings(_env_file=None).model == "BAAI/bge-reranker-v2-m3"
     # 30 + 30 fused down to 8 is the retrieval shape the whole plan assumes.
-    assert (settings.retrieval.dense_top_k, settings.retrieval.keyword_top_k) == (30, 30)
-    assert settings.retrieval.rerank_top_k == 8
+    retrieval = RetrievalSettings(_env_file=None)
+    assert (retrieval.dense_top_k, retrieval.keyword_top_k) == (30, 30)
+    assert retrieval.rerank_top_k == 8
 
 
 def test_env_overrides_every_section(monkeypatch: pytest.MonkeyPatch):

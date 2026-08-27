@@ -29,11 +29,15 @@ def test_every_subcommand_parses_and_has_a_handler() -> None:
     assert {
         "health", "providers", "paths",
         "classify", "extract", "verify", "bench", "chunk",
-        "index", "documents", "delete",
+        "index", "documents", "delete", "search", "ask",
     } <= names
 
-    # `delete` needs the document to remove; every other command runs bare.
-    required = {"delete": ["some-doc-id"]}
+    # Two commands take a mandatory argument: what to delete, and what to ask.
+    required = {
+        "delete": ["some-doc-id"],
+        "search": ["what", "is", "a", "PEP"],
+        "ask": ["what", "is", "a", "PEP"],
+    }
     for name in names:
         args = parser.parse_args([name, *required.get(name, [])])
         assert callable(args.handler), f"{name} has no handler"
@@ -42,7 +46,7 @@ def test_every_subcommand_parses_and_has_a_handler() -> None:
 @pytest.mark.parametrize(
     "command",
     ["health", "providers", "paths", "classify", "extract", "verify",
-     "bench", "chunk", "index", "documents", "delete"],
+     "bench", "chunk", "index", "documents", "delete", "search", "ask"],
 )
 def test_help_renders_for_each_subcommand(command: str, capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exit_info:
