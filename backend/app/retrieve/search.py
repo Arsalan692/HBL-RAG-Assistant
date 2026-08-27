@@ -68,6 +68,10 @@ class Passage:
     found_by: str
     year: int | None = None
     policy_family: str = ""
+    #: The document's circular number, e.g. A-INST-2025-01. Printed on the
+    #: covering instruction and in no clause, so it reaches a citation only by
+    #: being carried here.
+    circular: str = ""
     #: True when a newer vintage of the same policy is also indexed.
     superseded: bool = False
 
@@ -252,6 +256,7 @@ class Retriever:
             found_by=candidate.found_by,
             year=facts.year,
             policy_family=facts.policy_family,
+            circular=facts.circular,
         )
 
     def _document(self, doc_id: str) -> DocumentFacts:

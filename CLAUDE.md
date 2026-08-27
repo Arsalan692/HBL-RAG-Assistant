@@ -15,13 +15,15 @@ and per-page routing is doing real work: `Whistleblowing Policy & Program-2024`
 alone splits 11 digital / 7 scanned, while `AFPAD 2025` is 26 scanned pages and
 `Global AML CFT CPF and KYC Policy - 2023` is 49 digital ones.
 
-**The frontend is built. Phases 00–05 are done.** The pipeline runs end to end
-from PDF to a cited answer: page routing, extraction, verification, chunking,
-indexing into Qdrant + FTS5, hybrid retrieval with reranking, and grounded
-generation with citations and a refusal path. `hbl ask "..."` works today.
+**The frontend is built. Phases 00–06 are done on the backend.** The pipeline
+runs end to end from PDF to a cited answer, and `hbl serve` exposes it over
+HTTP: `POST /chat` (SSE), `GET /documents`, `DELETE /documents/{id}`,
+`GET /health`. Verified against the real index — 19 documents, 901 chunks.
 
-What is missing is the **API** (Phase 06) — FastAPI with SSE — so the frontend
-is still talking to mock data. Read `backend/README.md` first.
+What is left is **wiring the frontend to it** (replace the simulated stream in
+`frontend/src/App.tsx`), then **upload** — `POST /documents` needs a job queue,
+because ingesting one PDF is up to an hour of OCR and cannot be a request that
+holds a connection open. Read `backend/README.md` first.
 
 The full ten-phase plan lives in `docs/build-plan.html` — open it in a browser
 rather than reading the raw HTML. It carries the reasoning behind everything
@@ -101,9 +103,12 @@ npx tsc --noEmit         # type-check; there is no lint or test runner yet
 ./venv/Scripts/python.exe -m app.cli search "CDD" --text --no-rerank  # show snippets / fusion order only
 ./venv/Scripts/python.exe -m app.cli ask "what is EDD?"         # ...and stream a cited answer
 ./venv/Scripts/python.exe -m app.cli ask "..." --model qwen3:8b # override the generation model
+./venv/Scripts/python.exe -m app.cli serve                      # the API — http://127.0.0.1:8000, /docs
+curl -sN -X POST localhost:8000/chat -H "Content-Type: application/json" \
+     -d '{"question":"what is EDD?"}'                           # SSE, frames as they arrive
 ./venv/Scripts/python.exe -m app.cli documents             # what is indexed
 ./venv/Scripts/python.exe -m app.cli delete <doc_id> --yes # remove from both stores and disk
-./venv/Scripts/python.exe -m pytest backend        # 207 tests, no models, corpus or engines needed
+./venv/Scripts/python.exe -m pytest backend        # 226 tests, no models, corpus or engines needed
 
 python brand/make_icons.py                          # regenerate app icons
 ```
@@ -396,6 +401,28 @@ An array of numbers means `ollama` works. A 501 means use `bge-m3`.
 has no rerank endpoint, so `pip install torch sentence-transformers` on the
 workstation is wanted either way — the Ollama route only defers it.
 
+## The API
+
+`app/api/` — `hbl serve`. Thin by design: `Answerer.stream` already emits
+events in the order `StreamingState` expects, so `chat.py` mostly translates
+them into SSE frames.
+
+- **One `Engine`, one lock.** Models load once at startup; every route that
+  touches a model or a store goes through `engine.exclusive()`. There is one
+  GPU (or one set of CPU cores), so a second concurrent question would not run
+  twice as fast — it would run both half as fast at double the peak memory,
+  which is how this machine segfaults. The queueing is explicit rather than
+  left to whichever allocation fails first.
+- **`Registry(same_thread=False)` is only safe because of that lock.** FastAPI
+  runs sync endpoints on a thread pool and SQLite refuses cross-thread use by
+  default; the flag alone would move the failure somewhere harder to see.
+- **The fingerprint is checked at startup**, so a mismatched index is a server
+  that refuses to boot rather than one that answers nonsense confidently.
+- **Nothing is invented to fill a field.** `mock.ts` carries a `department` of
+  "Global Compliance" that reads like real metadata and was written to make the
+  mock look plausible; the documents have no such field, so the API returns
+  `""`. `effectiveDate` is the year and `version` the circular, both real.
+
 ## Answering speed is a requirement
 
 The user asked for it to feel like a normal chatbot. The 4060 Ti has 288 GB/s of
@@ -405,12 +432,19 @@ not tokens per second.
 - **`HBL_LLM_THINK=false` is the default and must stay off.** Qwen3 emits a
   `<think>` block before answering — hundreds of unseen tokens ahead of the first
   visible word. Largest single win, costs nothing.
-- **A cold first request looks like a crash.** `HBL_LLM_TIMEOUT_S` (180s) covers
-  a *single read*, and the first read is the expensive one: Ollama loads the
+- **A cold first request looks like a crash.** `HBL_LLM_TIMEOUT_S` covers a
+  *single read*, and the first read is the expensive one: Ollama loads the
   weights and prefills the whole prompt before emitting a token. On the CPU
   laptop that passes 180s and raises, while the identical request takes seconds
-  once the model is resident. `ollama run qwen3:8b ""` once warms it; the error
-  now says so rather than surfacing a bare `TimeoutError`.
+  once the model is resident. The error now says so rather than surfacing a
+  bare `TimeoutError`.
+- **`HBL_LLM_WARM_AHEAD` is a trade, and the devices want opposite answers.**
+  Loading the weights alongside retrieval is free on CUDA and buys seconds off
+  the first token. On CPU it makes the LLM's ~4.9 GB resident *during*
+  retrieval, on top of the embedder and reranker — and that peak segfaulted
+  this laptop twice, once in `hbl ask` and once in the API. Unset means "decide
+  from `HBL_DEVICE`", which is the safe default; the laptop pays a long cold
+  start instead and `HBL_LLM_TIMEOUT_S=1800` absorbs it.
 - **Both `qwen3:8b` and `qwen3:14b` are being carried across** to be benched
   against each other. ~35–45 tok/s vs ~20–25. Expect 8B to win; the task is
   grounded summarising, not open-ended reasoning. Don't assume 14B.

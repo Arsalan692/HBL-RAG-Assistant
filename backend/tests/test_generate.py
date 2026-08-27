@@ -334,14 +334,7 @@ def test_the_prompt_forbids_citing_a_replaced_edition_silently() -> None:
     assert "same sentence" in rules
 
 
-def test_the_model_starts_loading_before_retrieval_finishes() -> None:
-    """Loading the weights does not depend on the question, and retrieval is
-    not quick — 90-130s on CPU, during which the LLM would otherwise sit idle.
-    A cold 4.9 GB load afterwards twice pushed generation past its timeout.
-
-    Safe only because the embedder is released before the reranker loads: the
-    LLM's 4.9 GB now overlaps with retrieval's, and without that release the
-    three together are what segfaulted the machine."""
+def _warm_probe():
     import threading
 
     warmed = threading.Event()
@@ -351,8 +344,61 @@ def test_the_model_starts_loading_before_retrieval_finishes() -> None:
             warmed.set()
             return True
 
-    _answerer([_passage(1, "A clause.")], llm=Warmable()).answer("q")
+    return warmed, Warmable()
+
+
+def test_the_model_starts_loading_alongside_retrieval_where_there_is_room() -> None:
+    """Loading the weights does not depend on the question, and retrieval is
+    not quick — 90-130s on CPU, during which the LLM would otherwise sit idle.
+    On CUDA the VRAM budget already assumes all three models are resident, so
+    the overlap is free."""
+    from app.config import RuntimeSettings
+
+    settings = Settings()
+    settings.runtime = RuntimeSettings(_env_file=None, device="cuda")  # type: ignore[call-arg]
+    warmed, llm = _warm_probe()
+
+    retriever = FakeRetriever(
+        RetrievalResult(query="q", passages=[_passage(1, "A clause.")], refused=False)
+    )
+    Answerer(retriever=retriever, llm=llm, settings=settings).answer("q")  # type: ignore[arg-type]
     assert warmed.wait(timeout=5), "warm() should have been started"
+
+
+def test_a_memory_bound_machine_loads_one_model_at_a_time() -> None:
+    """Warming makes the LLM's ~4.9 GB resident *while* the embedder and
+    reranker are working. On a 16 GB laptop with a browser open that peak
+    segfaults the process — observed twice, once in `hbl ask` and once in the
+    API. There the cost of serialising is a cold start, which is survivable;
+    the cost of overlapping is a crash, which is not."""
+    from app.config import RuntimeSettings
+
+    settings = Settings()
+    settings.runtime = RuntimeSettings(_env_file=None, device="cpu")  # type: ignore[call-arg]
+    warmed, llm = _warm_probe()
+
+    retriever = FakeRetriever(
+        RetrievalResult(query="q", passages=[_passage(1, "A clause.")], refused=False)
+    )
+    Answerer(retriever=retriever, llm=llm, settings=settings).answer("q")  # type: ignore[arg-type]
+    assert not warmed.is_set(), "must not warm ahead on a memory-bound machine"
+
+
+def test_warm_ahead_can_be_forced_either_way() -> None:
+    """The device is a default, not a verdict — a CPU box with plenty of RAM
+    should be able to have the overlap."""
+    from app.config import LLMSettings, RuntimeSettings
+
+    settings = Settings()
+    settings.runtime = RuntimeSettings(_env_file=None, device="cpu")  # type: ignore[call-arg]
+    settings.llm = LLMSettings(_env_file=None, warm_ahead=True)  # type: ignore[call-arg]
+    warmed, llm = _warm_probe()
+
+    retriever = FakeRetriever(
+        RetrievalResult(query="q", passages=[_passage(1, "A clause.")], refused=False)
+    )
+    Answerer(retriever=retriever, llm=llm, settings=settings).answer("q")  # type: ignore[arg-type]
+    assert warmed.wait(timeout=5)
 
 
 def test_an_llm_that_cannot_warm_is_not_required_to() -> None:

@@ -729,6 +729,47 @@ def cmd_search(args: argparse.Namespace, settings: Settings) -> int:
         vectors.close()
 
 
+# --- serve -------------------------------------------------------------------
+
+
+def cmd_serve(args: argparse.Namespace, settings: Settings) -> int:
+    """Run the API the frontend talks to.
+
+    Single worker on purpose. Each worker would load its own copy of bge-m3 and
+    the reranker — 4.6 GB apiece — and they would then compete for one GPU.
+    Requests are serialised inside the process instead.
+    """
+    try:
+        import uvicorn
+    except ImportError:
+        print(
+            "\n  uvicorn is not installed. Run:  pip install -e backend\n",
+            file=sys.stderr,
+        )
+        return 2
+
+    from app.api.app import create_app
+
+    host = args.host or settings.api.host
+    port = args.port or settings.api.port
+
+    print(f"\n  HBL Policy Assistant API")
+    print(f"  http://{host}:{port}      docs at /docs")
+    print(f"  allowing origins: {', '.join(settings.api.origin_list)}")
+    print("\n  Loading models — the first request is not the slow one, this is.\n")
+
+    uvicorn.run(
+        create_app(settings),
+        host=host,
+        port=port,
+        log_level=settings.runtime.log_level.lower(),
+        # SSE holds a connection open for the length of an answer, which on a
+        # CPU-only machine is minutes. The default would cut it.
+        timeout_keep_alive=900,
+    )
+    return 0
+
+
 # --- ask ---------------------------------------------------------------------
 
 
@@ -1130,6 +1171,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     search.add_argument("--json", action="store_true")
     search.set_defaults(handler=cmd_search)
+
+    serve = sub.add_parser("serve", help="run the API the frontend talks to")
+    serve.add_argument("--host", help="override HBL_API_HOST")
+    serve.add_argument("--port", type=int, help="override HBL_API_PORT")
+    serve.set_defaults(handler=cmd_serve)
 
     ask = sub.add_parser("ask", help="retrieve, ground and stream an answer")
     ask.add_argument("question", nargs="+", help="the question, unquoted is fine")

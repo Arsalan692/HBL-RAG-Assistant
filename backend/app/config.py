@@ -193,6 +193,21 @@ class LLMSettings(BaseSettings):
     #: keeping the LLM resident is cheaper than reloading it per question.
     keep_alive: str = "30m"
 
+    #: Start loading the weights alongside retrieval instead of after it.
+    #:
+    #: None means "decide from the device", and the two devices genuinely want
+    #: opposite answers. On CUDA the VRAM budget already assumes all three
+    #: models are resident, the load is quick, and overlapping it with
+    #: retrieval is free time off the first token.
+    #:
+    #: On CPU it is a trade, not a win: warming makes the LLM's ~4.9 GB
+    #: resident *during* retrieval, on top of the embedder and reranker. On a
+    #: 16 GB laptop with a browser open that is the difference between
+    #: answering and a segfault — measured, twice. There the safe order is
+    #: strictly one model at a time, and the cost is a cold start that
+    #: `timeout_s` has to be wide enough to absorb.
+    warm_ahead: bool | None = None
+
     #: Qwen3 is a reasoning model and emits a <think> block before its answer by
     #: default — hundreds of tokens the reader never sees, all of them ahead of
     #: the first visible word. Off, because time-to-first-token is what makes a

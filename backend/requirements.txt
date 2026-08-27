@@ -13,3 +13,14 @@ pydantic-settings>=2.6,<3
 # it, so it belongs in the core set rather than the GPU one — page routing and
 # text extraction both run fine on the laptop.
 pymupdf>=1.24
+
+# Storage. The vector half of retrieval, in embedded mode — a directory on
+# disk, no server and no Docker, so it installs on the laptop too.
+qdrant-client>=1.12
+
+# The API. FastAPI and uvicorn are pure Python and small; the whole point of
+# the backend is to serve this, so they belong in the core set rather than the
+# GPU one. python-multipart is what lets FastAPI accept an uploaded PDF.
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9

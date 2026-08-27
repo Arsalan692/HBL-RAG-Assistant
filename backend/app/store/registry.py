@@ -168,10 +168,16 @@ class KeywordHit:
 class Registry:
     """SQLite-backed document registry and keyword index."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, same_thread: bool = True) -> None:
+        """`same_thread=False` for the API, which serves requests on a thread
+        pool. SQLite's default refuses a connection used from another thread —
+        a real protection, since concurrent use of one connection corrupts
+        state. The API relaxes it only because it holds a lock that serialises
+        every access; nothing else should pass False.
+        """
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(path, isolation_level=None)
+        self._db = sqlite3.connect(path, isolation_level=None, check_same_thread=same_thread)
         self._db.row_factory = sqlite3.Row
         # Cascade is off by default in SQLite, and this schema depends on it:
         # deleting a document has to take its chunks, which takes its keyword

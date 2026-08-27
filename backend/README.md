@@ -381,11 +381,42 @@ exists renders as a dead number.
 means retrieval is handing over more than the answer needs, and prefill is the
 largest cost in time-to-first-token — `HBL_RETRIEVAL_RERANK_TOP_K` is the knob.
 
+### The API, and why one lock
+
+`app/api/` — `hbl serve`. `POST /chat` (SSE), `GET /documents`,
+`DELETE /documents/{id}`, `GET /health`.
+
+`chat.py` is deliberately thin: `Answerer.stream` already emits events in the
+order `StreamingState` expects, because that contract was settled while Phase 05
+was written rather than retrofitted. All this does is format SSE frames.
+
+One `Engine` holds the models, the registry and the vector store, and every
+route that touches them goes through `engine.exclusive()`. That is not caution
+about thread-safety alone — there is one GPU, or one set of CPU cores, and two
+concurrent questions would run both half as fast at double the peak memory,
+which is exactly how this machine segfaults. The queueing is explicit rather
+than left to whichever allocation fails first. `Registry(same_thread=False)` is
+only defensible because that lock exists.
+
+The index fingerprint is checked at **startup**, so a mismatch is a server that
+refuses to boot rather than one that answers nonsense confidently.
+
+And nothing is invented to fill a response field. `mock.ts` carries a
+`department` of "Global Compliance" — it reads like real metadata and was
+written to make the mock look plausible. The documents have no such field, so
+the API returns an empty string. `effectiveDate` is the document's year and
+`version` its circular number; both are real. A system built to stop a model
+inventing confident details should not open by inventing them itself.
+
 ## Next
 
-**The API** (Phase 06) — FastAPI with SSE over `Answerer.stream`, whose events
-already match the frontend's `StreamingState`. Then `POST /documents` for upload,
-`GET /documents`, `DELETE /documents/{id}` and a page-image endpoint for citation
-previews, replacing the simulated stream in `frontend/src/App.tsx`.
+**Wiring the frontend.** Replace the simulated stream in `frontend/src/App.tsx`
+(`send`, `STEP_DELAYS`) with an SSE reader. The component tree does not change,
+and `MetaRow` in `SourcePanel.tsx` should skip a value that is empty.
+
+**Then upload.** `POST /documents` needs a job queue and a progress channel:
+ingesting one PDF means routing every page, running a vision model over the
+scans and re-embedding — up to an hour, which cannot be a request that holds a
+connection open.
 
 The full plan is `docs/build-plan.html`; open it in a browser.

@@ -79,6 +79,9 @@ class Source:
     relevance: float
     excerpt: str
     year: int | None = None
+    #: The document's circular number where it has one. Carried through so a
+    #: citation can name it, since it appears in no clause of any document.
+    circular: str = ""
     superseded: bool = False
 
     @classmethod
@@ -92,6 +95,7 @@ class Source:
             relevance=passage.score,
             excerpt=passage.text,
             year=passage.year,
+            circular=passage.circular,
             superseded=passage.superseded,
         )
 
@@ -133,12 +137,11 @@ class Answerer:
         result = into if into is not None else AnswerResult(question=question)
         result.question = question
 
-        # The weights the model needs do not depend on the question, so loading
-        # them does not have to wait for retrieval — and retrieval is not quick.
-        # On CPU it runs 90-130s while the LLM sits idle, after which a cold
-        # 4.9 GB load has twice pushed generation past its timeout. Overlapping
-        # the two is free, and time-to-first-token is a stated requirement.
-        self._start_warming()
+        # Loading the weights does not depend on the question, so on a machine
+        # with room it starts now and overlaps retrieval. On a memory-bound one
+        # it must not: see `_warms_ahead`.
+        if self._warms_ahead():
+            self._start_warming()
 
         yield Event(kind="step", value="searching")
         retrieval = self._retriever.search(question)
@@ -235,6 +238,28 @@ class Answerer:
         for _ in self.stream(question, into=result):
             pass
         return result
+
+    def _warms_ahead(self) -> bool:
+        """Whether to load the model alongside retrieval, or strictly after it.
+
+        `HBL_LLM_WARM_AHEAD` decides when set. Unset, the device does — and the
+        two devices want opposite answers.
+
+        On CUDA the VRAM budget already assumes all three models are resident,
+        so overlapping the load with retrieval costs nothing and buys seconds
+        off the first token.
+
+        On CPU it is the opposite trade. Warming makes the LLM's ~4.9 GB
+        resident *while* the embedder and reranker are working, and on a 16 GB
+        laptop with a browser open that peak segfaults the process — observed
+        twice, once in `hbl ask` and once in the API. Serialising costs a cold
+        start instead, which is slow but survivable, and `timeout_s` is the
+        knob for it.
+        """
+        configured = self._settings.llm.warm_ahead
+        if configured is not None:
+            return configured
+        return self._settings.runtime.device != "cpu"
 
     def _start_warming(self) -> None:
         """Begin loading the generation model in the background, if it can be.
