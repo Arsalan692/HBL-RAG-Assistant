@@ -243,9 +243,29 @@ queries against the real index (2026-08-27):
    the wrong document to 0.993 on the right one**, with no regression on
    paraphrase queries.
 
+A third, found later by a question that should have worked (2026-08-28):
+
+3. **The refusal threshold was refusing answerable questions.** "Who will
+   approve donations worth of 30 Million?" returned nothing, though the
+   Donations Policy states the answer outright and keyword search ranked that
+   clause **first**. The cross-encoder scored it 0.0999 against a threshold of
+   0.15. The same question phrased "who approves a donation of PKR 30 million?"
+   scores **0.620** on the identical passage — the threshold was rejecting
+   phrasing, not irrelevance. Measured on this corpus, unanswerable questions
+   score ~0.001 and real ones 0.10 and up, so the default is now **0.02**:
+   ~20x the noise floor, ~5x below the weakest true positive.
+
+   The same investigation found a separate defect it did *not* cause. That
+   chunk's breadcrumb read `Annexure 2 Donation Application Form -
+   Internal...............12 > 2.1 GUIDELINES:` — a contents-page line with dot
+   leaders, 79 characters and seven words, which cleared the annexure heading's
+   length guards in `structure.py`. Every clause after it inherited that
+   breadcrumb, filing approval thresholds under "Donation Application Form".
+   Fixed by rejecting dot-leader lines; takes effect on the next `hbl index`.
+
 The general lesson, and it is the same one the OCR bench-off taught: a stage
-that *succeeds* and is wrong is invisible to aggregate numbers. Both of these
-had green unit tests either side of them.
+that *succeeds* and is wrong is invisible to aggregate numbers. All three of
+these had green unit tests either side of them.
 
 ### The index records which embedder built it
 

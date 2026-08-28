@@ -413,7 +413,23 @@ class RetrievalSettings(BaseSettings):
     rerank_candidates: int = 30
     rerank_top_k: int = 8
     #: Below this reranker score the answer refuses rather than guesses.
-    min_rerank_score: float = 0.15
+    #:
+    #: 0.02 was measured, where the original 0.15 was guessed before there was
+    #: anything to measure against. On this corpus and this cross-encoder the
+    #: two populations are far apart: questions with no answer here score around
+    #: 0.001 ("submarine hatch bolt torque" 0.0005, "sourdough at altitude"
+    #: 0.0009), while real questions score 0.10 and up.
+    #:
+    #: 0.15 sat on the wrong side of that gap. "Who will approve donations worth
+    #: of 30 Million?" retrieved the clause that answers it — keyword search
+    #: ranked it first — and then refused, because the cross-encoder scored the
+    #: passage 0.0999. The same question as "who approves a donation of PKR 30
+    #: million?" scores 0.620 on the identical passage, so the threshold was
+    #: rejecting phrasing rather than irrelevance.
+    #:
+    #: 0.02 is ~20x the observed noise floor and ~5x below the weakest true
+    #: positive. Raising it again means refusing questions the corpus answers.
+    min_rerank_score: float = 0.02
 
     qdrant_collection: str = "hbl_chunks"
 

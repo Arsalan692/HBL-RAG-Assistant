@@ -53,6 +53,13 @@ _CONTENTS = re.compile(r"^\s*\**\s*(table of contents|contents|index)\s*\**\s*$"
 #: A trailing page number on a contents line: "1.2 Purpose .... 6" or "1.2 Purpose 6".
 _TRAILING_PAGE = re.compile(r"[\s.]+\d{1,4}\s*$")
 
+#: Dot leaders followed by a page number — the unmistakable shape of a contents
+#: entry: "Annexure 2 Donation Application Form - Internal...............12".
+#:
+#: Deliberately stricter than `_TRAILING_PAGE`, which would also match a real
+#: heading like "Annexure 3" and reject it. Two or more dots are the signal.
+_DOT_LEADER = re.compile(r"\.{2,}\s*\d{1,4}\s*$")
+
 
 @dataclass(frozen=True, slots=True)
 class Block:
@@ -297,6 +304,15 @@ def _classify_line(line: str, index: dict[str, str] | None = None) -> Block | No
 
     if match := _ANNEXURE.match(line.strip(" *")):
         text = line.strip(" *")
+        # A contents entry is not a heading, however much it looks like one.
+        # "Annexure 2 Donation Application Form - Internal..............12" is
+        # 79 characters and seven words, so it cleared both guards below and
+        # became a level-1 heading — and then every clause under it inherited
+        # that breadcrumb. The Donations Policy's approval thresholds were
+        # filed under "Donation Application Form", which is a different
+        # subject, in the source panel and in the prompt alike.
+        if _DOT_LEADER.search(text):
+            return None
         if len(text) <= 110 and len(text.split()) <= 14:
             return Block(kind="heading", text=text, page=0, level=1, number="", title=text)
 

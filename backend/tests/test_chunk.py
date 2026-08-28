@@ -259,3 +259,25 @@ def test_chunk_ids_are_stable_across_runs() -> None:
 def test_token_estimates_track_length() -> None:
     assert estimate_tokens("") == 1
     assert estimate_tokens("x" * 400) == 100
+
+
+def test_a_contents_entry_is_not_a_heading() -> None:
+    """Observed on the Donations Policy: the contents line
+
+        Annexure 2 Donation Application Form - Internal...............12
+
+    is 79 characters and seven words, so it cleared the annexure heading's
+    length guards and became a level-1 heading. Every clause after it inherited
+    that breadcrumb, so the approval thresholds — who signs off a PKR 30m
+    donation — were filed under "Donation Application Form", both in the source
+    panel and in the text handed to the reranker.
+    """
+    from app.ingest.structure import _classify_line
+
+    assert _classify_line("Annexure 2 Donation Application Form - Internal.................12") is None
+    assert _classify_line("Appendix A Country Risk Ratings .... 7") is None
+
+    # The real headings those entries point at must still be headings.
+    for real in ("Annexure 2 Donation Application Form - Internal", "Annexure 3", "Appendix A"):
+        block = _classify_line(real)
+        assert block is not None and block.kind == "heading", real
